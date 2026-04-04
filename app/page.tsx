@@ -1,128 +1,192 @@
 "use client";
 
-import { NotesScroll } from "@/components/features/notes/notes-scroll";
-import { EventFeed } from "@/components/features/events/event-card";
-import type { Event, Note } from "@/lib/mock-data";
-import { useRelationship } from "@/contexts/relationship-context";
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { Bell } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { supabase } from "@/lib/supabase/client";
+import { AvatarName } from "@/components/ui/avatar-name";
 
-export default function Home() {
-  const router = useRouter();
-  const { isBlocked, isHot } = useRelationship();
-  const [events, setEvents] = useState<Event[]>([]);
-  const [notes, setNotes] = useState<Note[]>([]);
+type EventSummary = {
+  id: string;
+  purpose: string;
+  visibility: "public" | "limited" | "private";
+  capacity: number;
+  status: "open" | "confirmed" | "completed" | "cancelled";
+  scheduleMode: "fixed" | "candidate";
+  fixedStartTime?: string | null;
+  fixedEndTime?: string | null;
+  fixedPlaceName?: string | null;
+  owner: { userId: string; displayName: string; avatarIcon?: string | null };
+  approvedCount: number;
+  timeCandidates: { id: string; startTime: string; endTime: string; score: number }[];
+  placeCandidates: { id: string; name: string; address: string; score: number }[];
+  isFavoriteOwner: boolean;
+  viewerRelation: "participating" | "invited" | "public";
+  createdAt: string;
+};
+
+type FeedResponse = {
+  participating: EventSummary[];
+  invited: EventSummary[];
+  public: EventSummary[];
+};
+
+const formatStart = (start?: string | null) => {
+  if (!start) return "候補から決定";
+  const startDate = new Date(start);
+  return `${startDate.toLocaleDateString("ja-JP", {
+    month: "short",
+    day: "numeric",
+  })} ${startDate.toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+};
+
+export default function HomePage() {
+  const [feed, setFeed] = useState<FeedResponse>({
+    participating: [],
+    invited: [],
+    public: [],
+  });
+  const [userId, setUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
 
   useEffect(() => {
-    let isMounted = true;
-
-    const loadData = async () => {
-      try {
-        const [eventsResponse, notesResponse] = await Promise.all([
-          fetch("/api/events"),
-          fetch("/api/notes"),
-        ]);
-
-        if (!eventsResponse.ok || !notesResponse.ok) {
-          throw new Error("Failed to fetch data");
-        }
-
-        const [eventsData, notesData] = await Promise.all([
-          eventsResponse.json(),
-          notesResponse.json(),
-        ]);
-
-        if (!isMounted) return;
-
-        setEvents(eventsData);
-        setNotes(notesData);
-      } catch (error) {
-        console.error(error);
-        if (isMounted) {
-          setHasError(true);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
-      }
+    const loadUser = async () => {
+      const { data } = await supabase.auth.getSession();
+      setUserId(data.session?.user?.id ?? null);
     };
 
-    loadData();
-
-    return () => {
-      isMounted = false;
-    };
+    loadUser();
   }, []);
 
-  // 好感度に基づいてイベントをフィルタリング・ソート
-  const filteredEvents = useMemo(() => {
-    // BLOCKされたユーザーのイベントを除外
-    const unblockedEvents = events.filter(
-      (event) => !isBlocked(event.organizerId)
-    );
+  useEffect(() => {
+    const loadEvents = async () => {
+      setIsLoading(true);
+      const query = userId ? `?viewerId=${userId}` : "";
+      const response = await fetch(`/api/events${query}`);
+      const data = (await response.json()) as FeedResponse;
+      setFeed(data);
+      setIsLoading(false);
+    };
 
-    // HOTなユーザーのイベントを優先
-    return unblockedEvents.sort((a, b) => {
-      const aIsHot = isHot(a.organizerId);
-      const bIsHot = isHot(b.organizerId);
-      if (aIsHot && !bIsHot) return -1;
-      if (!aIsHot && bIsHot) return 1;
-      return 0;
-    });
-  }, [events, isBlocked, isHot]);
+    loadEvents();
+  }, [userId]);
+
+  const sortedParticipating = useMemo(
+    () => [...feed.participating].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
+    [feed.participating]
+  );
+  const sortedInvited = useMemo(
+    () => [...feed.invited].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
+    [feed.invited]
+  );
+  const sortedPublic = useMemo(
+    () => [...feed.public].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),
+    [feed.public]
+  );
+
+  const sections = [
+    {
+      key: "participating",
+      title: "参加予定のイベント",
+      icon: "event_available",
+      description: "あなたが参加する予定のイベント",
+      events: sortedParticipating,
+      emptyMessage: "参加予定のイベントはまだありません。",
+    },
+    {
+      key: "invited",
+      title: "招待されているイベント",
+      icon: "mail",
+      description: "返答待ちの招待イベント",
+      events: sortedInvited,
+      emptyMessage: "招待中のイベントはありません。",
+    },
+    {
+      key: "public",
+      title: "公開されているイベント",
+      icon: "public",
+      description: "誰でも参加できるイベント",
+      events: sortedPublic,
+      emptyMessage: "公開イベントはまだありません。",
+    },
+  ] as const;
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA]">
-      {/* ヘッダー */}
-      <header className="sticky top-0 z-50 bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <h1 className="text-2xl font-bold bg-gradient-to-r from-[#FF6B6B] to-[#845EF7] bg-clip-text text-transparent">
-            Meet & Moc
-          </h1>
-          <button
-            onClick={() => router.push("/invitations")}
-            className="relative p-2 rounded-full hover:bg-gray-100 transition-colors"
-          >
-            <Bell size={24} className="text-gray-700" />
-            <span className="absolute top-1 right-1 w-3 h-3 bg-[#FF6B6B] rounded-full border-2 border-white" />
-          </button>
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-40 border-b border-orange-100 bg-[#fdf7ef]/95 backdrop-blur">
+        <div className="mx-auto flex max-w-md flex-col gap-1 px-4 py-4 sm:max-w-6xl sm:px-6">
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-[#ae8a62]">
+              Meet & Moc
+            </p>
+            <h1 className="text-2xl font-semibold">イベントフィード</h1>
+          </div>
         </div>
       </header>
 
-      {/* Instagram風ノート */}
-      <NotesScroll notes={notes} />
+      <main className="mx-auto max-w-md px-4 py-8 sm:max-w-6xl sm:px-6 sm:py-10">
+        {sections.map((section) => (
+          <section key={section.key} className="mb-8">
+            <div className="mb-3 flex items-center justify-between">
+              <div>
+                <h2 className="flex items-center gap-2 text-lg font-semibold text-[var(--foreground)]">
+                  <span className="material-symbols-rounded text-[var(--accent)]">{section.icon}</span>
+                  {section.title}
+                </h2>
+                <p className="text-xs text-[var(--muted)]">{section.description}</p>
+              </div>
+              <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-600">
+                {section.events.length}
+              </span>
+            </div>
 
-      {/* メインコンテンツ */}
-      <main className="max-w-7xl mx-auto px-4 py-8">
-        <div className="mb-6">
-          <h2 className="text-xl font-bold text-gray-800 mb-2">
-            あなたにオススメのイベント
-          </h2>
-          <p className="text-sm text-gray-600">
-            カードをスワイプして興味のあるイベントを探そう！
-          </p>
-        </div>
-
-        {hasError && (
-          <div className="mb-6 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
-            データの取得に失敗しました。時間をおいて再読み込みしてください。
-          </div>
-        )}
-
-        {isLoading ? (
-          <div className="text-center text-gray-500">読み込み中...</div>
-        ) : filteredEvents.length > 0 ? (
-          <EventFeed events={filteredEvents} />
-        ) : (
-          <div className="text-center text-gray-500">
-            現在表示できるイベントがありません。
-          </div>
-        )}
+            {isLoading ? (
+              <div className="rounded-3xl border border-orange-100 bg-white/85 p-8 text-center text-sm text-[var(--muted)] shadow-sm">
+                読み込み中...
+              </div>
+            ) : section.events.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-orange-200 bg-white/80 p-8 text-center text-sm text-[var(--muted)]">
+                {section.emptyMessage}
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {section.events.map((event) => (
+                  <EventListItem key={event.id} event={event} />
+                ))}
+              </div>
+            )}
+          </section>
+        ))}
       </main>
     </div>
+  );
+}
+
+function EventListItem({ event }: { event: EventSummary }) {
+  const primaryTime = event.fixedStartTime
+    ? formatStart(event.fixedStartTime)
+    : event.timeCandidates[0]
+      ? formatStart(event.timeCandidates[0].startTime)
+      : "候補から決定";
+
+  return (
+    <Link
+      href={`/events/${event.id}`}
+      className="flex items-center gap-3 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm"
+    >
+      <div className="grid h-11 w-11 place-items-center rounded-2xl bg-orange-100 text-[var(--accent)]">
+        <span className="material-symbols-rounded">event</span>
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold text-[var(--foreground)]">{event.purpose}</p>
+        <div className="flex items-center gap-2 text-xs text-[var(--muted)]">
+          <AvatarName displayName={event.owner.displayName} avatarIcon={event.owner.avatarIcon} className="max-w-[60%]" textClassName="truncate" />
+          <span>・{primaryTime}</span>
+        </div>
+      </div>
+      <span className="material-symbols-rounded text-[var(--accent)]">chevron_right</span>
+    </Link>
   );
 }

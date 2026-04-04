@@ -7,188 +7,299 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum RelationshipStatus {
-  hot
-  normal
-  block
+enum Gender {
+  male
+  female
+  other
+  unspecified
 
-  @@map("relationship_status")
+  @@map("gender")
 }
 
-enum InvitationStatus {
+enum PlayFrequency {
+  low
+  medium
+  high
+
+  @@map("play_frequency")
+}
+
+enum DrinkFrequency {
+  never
+  sometimes
+  often
+
+  @@map("drink_frequency")
+}
+
+enum FriendshipStatus {
   pending
   accepted
-  declined
-  maybe
+  blocked
 
-  @@map("invitation_status")
+  @@map("friendship_status")
+}
+
+enum EventVisibility {
+  public
+  limited
+  private
+
+  @@map("event_visibility")
+}
+
+enum EventStatus {
+  open
+  confirmed
+  completed
+  cancelled
+
+  @@map("event_status")
+}
+
+enum ScheduleMode {
+  fixed
+  candidate
+
+  @@map("schedule_mode")
 }
 
 enum ParticipantStatus {
-  confirmed
-  maybe
+  requested
+  approved
   declined
+  cancelled
 
   @@map("participant_status")
 }
 
-model User {
-  id             String           @id @default(uuid()) @db.Uuid
-  username       String
-  avatarUrl      String?          @map("avatar_url")
-  createdAt      DateTime         @default(now()) @map("created_at")
-  notes          Note[]
-  events         Event[]          @relation("EventOrganizer")
-  invitations    Invitation[]     @relation("InvitationInvitee")
-  organizedInvites Invitation[]   @relation("InvitationOrganizer")
-  eventParticipants EventParticipant[]
-  dateOptionParticipants EventDateOptionParticipant[]
-  userCategories UserCategory[]
-  userAllergens  UserAllergen[]
-  relationships  Relationship[]   @relation("RelationshipUser")
-  relatedBy      Relationship[]   @relation("RelationshipTarget")
+enum ParticipantRole {
+  owner
+  guest
 
-  @@map("users")
+  @@map("participant_role")
 }
 
-model Note {
-  id        String   @id @default(uuid()) @db.Uuid
-  userId    String   @map("user_id") @db.Uuid
-  message   String   @db.VarChar(20)
-  createdAt DateTime @default(now()) @map("created_at")
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+enum InviteStatus {
+  pending
+  accepted
+  declined
 
-  @@map("notes")
+  @@map("invite_status")
+}
+
+enum CandidateSource {
+  system
+  proposal
+
+  @@map("candidate_source")
+}
+
+enum NotificationType {
+  event_confirmed
+  invite_received
+  join_requested
+  join_approved
+  friend_added
+
+  @@map("notification_type")
+}
+
+model Profile {
+  userId         String         @id @db.Uuid @map("user_id")
+  displayName    String         @map("display_name")
+  avatarIcon     String?        @map("avatar_icon")
+  gender         Gender         @default(unspecified)
+  birthDate      DateTime?      @map("birth_date") @db.Date
+  playFrequency  PlayFrequency? @map("play_frequency")
+  drinkFrequency DrinkFrequency? @map("drink_frequency")
+  budgetMin      Int?           @map("budget_min")
+  budgetMax      Int?           @map("budget_max")
+  ngFoods        String[]       @default([]) @map("ng_foods")
+  favoriteAreas  String[]       @default([]) @map("favorite_areas")
+  favoritePlaces String[]       @default([]) @map("favorite_places")
+  availability   Json?          @map("availability")
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  friendships    Friendship[]   @relation("FriendshipUser")
+  relatedBy      Friendship[]   @relation("FriendshipFriend")
+  favorites      FavoriteFriend[] @relation("FavoriteUser")
+  favoredBy      FavoriteFriend[] @relation("FavoritedUser")
+  events         Event[]        @relation("EventOwner")
+  participants   EventParticipant[]
+  invitesSent    EventInvite[]  @relation("InviteSender")
+  invitesReceived EventInvite[] @relation("InviteReceiver")
+  timeVotes      EventTimeVote[]
+  placeVotes     EventPlaceVote[]
+  notifications  Notification[]
+
+  @@map("profiles")
+}
+
+model Friendship {
+  userId     String           @map("user_id") @db.Uuid
+  friendId   String           @map("friend_id") @db.Uuid
+  status     FriendshipStatus @default(pending)
+  createdAt  DateTime         @default(now()) @map("created_at")
+
+  user       Profile          @relation("FriendshipUser", fields: [userId], references: [userId], onDelete: Cascade)
+  friend     Profile          @relation("FriendshipFriend", fields: [friendId], references: [userId], onDelete: Cascade)
+
+  @@id([userId, friendId])
+  @@map("friendships")
+}
+
+model FavoriteFriend {
+  userId       String   @map("user_id") @db.Uuid
+  favoriteUserId String @map("favorite_user_id") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  user         Profile  @relation("FavoriteUser", fields: [userId], references: [userId], onDelete: Cascade)
+  favoriteUser Profile  @relation("FavoritedUser", fields: [favoriteUserId], references: [userId], onDelete: Cascade)
+
+  @@id([userId, favoriteUserId])
+  @@map("favorite_friends")
 }
 
 model Event {
-  id               String             @id @default(uuid()) @db.Uuid
-  organizerId      String             @map("organizer_id") @db.Uuid
-  title            String
-  description      String?
-  eventDate        DateTime?          @map("event_date") @db.Date
-  location         String?
-  priceCents       Int?               @map("price_cents")
-  maxParticipants  Int?               @map("max_participants")
-  imageUrl         String?            @map("image_url")
-  createdAt        DateTime           @default(now()) @map("created_at")
-  organizer        User               @relation("EventOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
-  hashtags         EventHashtag[]
-  participants     EventParticipant[]
-  dateOptions      EventDateOption[]
-  invitations      Invitation[]
+  id              String          @id @default(uuid()) @db.Uuid
+  ownerId         String          @map("owner_id") @db.Uuid
+  purpose         String
+  visibility      EventVisibility @default(public)
+  capacity        Int
+  status          EventStatus     @default(open)
+  scheduleMode    ScheduleMode    @map("schedule_mode")
+  fixedStartTime  DateTime?       @map("fixed_start_time")
+  fixedEndTime    DateTime?       @map("fixed_end_time")
+  fixedPlaceId    String?         @map("fixed_place_id")
+  fixedPlaceName  String?         @map("fixed_place_name")
+  fixedPlaceAddress String?       @map("fixed_place_address")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  owner           Profile         @relation("EventOwner", fields: [ownerId], references: [userId], onDelete: Cascade)
+  participants    EventParticipant[]
+  invites         EventInvite[]
+  timeCandidates  EventTimeCandidate[]
+  placeCandidates EventPlaceCandidate[]
+  notifications   Notification[]
 
   @@map("events")
 }
 
-model EventHashtag {
-  id      String @id @default(uuid()) @db.Uuid
-  eventId String @map("event_id") @db.Uuid
-  tag     String
-  event   Event  @relation(fields: [eventId], references: [id], onDelete: Cascade)
-
-  @@map("event_hashtags")
-}
-
 model EventParticipant {
-  eventId  String            @map("event_id") @db.Uuid
-  userId   String            @map("user_id") @db.Uuid
-  status   ParticipantStatus @default(confirmed)
-  joinedAt DateTime          @default(now()) @map("joined_at")
-  event    Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  user     User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventId     String            @map("event_id") @db.Uuid
+  userId      String            @map("user_id") @db.Uuid
+  status      ParticipantStatus @default(requested)
+  role        ParticipantRole   @default(guest)
+  createdAt   DateTime          @default(now()) @map("created_at")
+
+  event       Event             @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  user        Profile           @relation(fields: [userId], references: [userId], onDelete: Cascade)
 
   @@id([eventId, userId])
   @@map("event_participants")
 }
 
-model EventDateOption {
-  id         String   @id @default(uuid()) @db.Uuid
-  eventId    String   @map("event_id") @db.Uuid
-  optionDate DateTime @map("option_date") @db.Date
-  startTime  DateTime @map("start_time") @db.Time
-  endTime    DateTime @map("end_time") @db.Time
-  event      Event    @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  participants EventDateOptionParticipant[]
+model EventInvite {
+  id         String       @id @default(uuid()) @db.Uuid
+  eventId    String       @map("event_id") @db.Uuid
+  inviterId  String       @map("inviter_id") @db.Uuid
+  inviteeId  String?      @map("invitee_id") @db.Uuid
+  token      String       @unique
+  status     InviteStatus @default(pending)
+  createdAt  DateTime     @default(now()) @map("created_at")
 
-  @@map("event_date_options")
+  event      Event        @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  inviter    Profile      @relation("InviteSender", fields: [inviterId], references: [userId], onDelete: Cascade)
+  invitee    Profile?     @relation("InviteReceiver", fields: [inviteeId], references: [userId], onDelete: SetNull)
+
+  @@map("event_invites")
 }
 
-model EventDateOptionParticipant {
-  optionId String @map("option_id") @db.Uuid
-  userId   String @map("user_id") @db.Uuid
-  option   EventDateOption @relation(fields: [optionId], references: [id], onDelete: Cascade)
-  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+model EventTimeCandidate {
+  id         String         @id @default(uuid()) @db.Uuid
+  eventId    String         @map("event_id") @db.Uuid
+  startTime  DateTime       @map("start_time")
+  endTime    DateTime       @map("end_time")
+  score      Int            @default(0)
+  source     CandidateSource @default(system)
+  proposedBy String?        @map("proposed_by") @db.Uuid
+  createdAt  DateTime       @default(now()) @map("created_at")
 
-  @@id([optionId, userId])
-  @@map("event_date_option_participants")
+  event      Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  votes      EventTimeVote[]
+
+  @@map("event_time_candidates")
 }
 
-model Invitation {
-  id          String           @id @default(uuid()) @db.Uuid
-  eventId     String           @map("event_id") @db.Uuid
-  organizerId String           @map("organizer_id") @db.Uuid
-  inviteeId   String           @map("invitee_id") @db.Uuid
-  status      InvitationStatus @default(pending)
-  message     String?
-  invitedAt   DateTime         @default(now()) @map("invited_at")
-  event       Event            @relation(fields: [eventId], references: [id], onDelete: Cascade)
-  organizer   User             @relation("InvitationOrganizer", fields: [organizerId], references: [id], onDelete: Cascade)
-  invitee     User             @relation("InvitationInvitee", fields: [inviteeId], references: [id], onDelete: Cascade)
+model EventPlaceCandidate {
+  id         String         @id @default(uuid()) @db.Uuid
+  eventId    String         @map("event_id") @db.Uuid
+  placeId    String         @map("place_id")
+  name       String
+  address    String
+  lat        Float
+  lng        Float
+  priceLevel Int?           @map("price_level")
+  score      Int            @default(0)
+  source     CandidateSource @default(system)
+  proposedBy String?        @map("proposed_by") @db.Uuid
+  createdAt  DateTime       @default(now()) @map("created_at")
 
-  @@map("invitations")
+  event      Event          @relation(fields: [eventId], references: [id], onDelete: Cascade)
+  votes      EventPlaceVote[]
+
+  @@map("event_place_candidates")
 }
 
-model Category {
-  id          String @id
-  name        String
-  emoji       String?
-  description String?
-  color       String?
-  users       UserCategory[]
+model EventTimeVote {
+  candidateId String   @map("candidate_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  isAvailable Boolean  @default(true) @map("is_available")
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  @@map("categories")
+  candidate   EventTimeCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  user        Profile            @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([candidateId, userId])
+  @@map("event_time_votes")
 }
 
-model Allergen {
-  id    String @id
-  name  String
-  emoji String?
-  users UserAllergen[]
+model EventPlaceVote {
+  candidateId String   @map("candidate_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  score       Int      @default(3)
+  createdAt   DateTime @default(now()) @map("created_at")
 
-  @@map("allergens")
+  candidate   EventPlaceCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
+  user        Profile             @relation(fields: [userId], references: [userId], onDelete: Cascade)
+
+  @@id([candidateId, userId])
+  @@map("event_place_votes")
 }
 
-model UserCategory {
-  userId     String   @map("user_id") @db.Uuid
-  categoryId String   @map("category_id")
-  createdAt  DateTime @default(now()) @map("created_at")
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  category   Category @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+model PlaceCache {
+  query     String   @id
+  response  Json
+  updatedAt DateTime @updatedAt @map("updated_at")
+  createdAt DateTime @default(now()) @map("created_at")
 
-  @@id([userId, categoryId])
-  @@map("user_categories")
+  @@map("place_cache")
 }
 
-model UserAllergen {
-  userId     String   @map("user_id") @db.Uuid
-  allergenId String   @map("allergen_id")
-  createdAt  DateTime @default(now()) @map("created_at")
-  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  allergen   Allergen @relation(fields: [allergenId], references: [id], onDelete: Cascade)
+model Notification {
+  id        String           @id @default(uuid()) @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  type      NotificationType
+  message   String
+  eventId   String?          @map("event_id") @db.Uuid
+  createdAt DateTime         @default(now()) @map("created_at")
+  readAt    DateTime?        @map("read_at")
 
-  @@id([userId, allergenId])
-  @@map("user_allergens")
-}
+  user      Profile          @relation(fields: [userId], references: [userId], onDelete: Cascade)
+  event     Event?           @relation(fields: [eventId], references: [id], onDelete: SetNull)
 
-model Relationship {
-  userId       String             @map("user_id") @db.Uuid
-  targetUserId String             @map("target_user_id") @db.Uuid
-  status       RelationshipStatus @default(normal)
-  createdAt    DateTime           @default(now()) @map("created_at")
-  user         User               @relation("RelationshipUser", fields: [userId], references: [id], onDelete: Cascade)
-  targetUser   User               @relation("RelationshipTarget", fields: [targetUserId], references: [id], onDelete: Cascade)
-
-  @@id([userId, targetUserId])
-  @@map("relationships")
+  @@map("notifications")
 }

@@ -35,6 +35,16 @@ To stop and remove containers:
 docker compose down
 ```
 
+## Environment Variables
+
+Copy `.env.example` to `.env` and set the following:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `GOOGLE_PLACES_API_KEY`
+
+Place search results are cached in the `place_cache` table to reduce API usage.
+
 ## Prisma (Schema + Seed)
 
 Prisma is set up for type-safe DB access. The database schema is defined in
@@ -47,6 +57,15 @@ docker compose exec app npm run db:migrate
 docker compose exec app npx prisma generate
 docker compose exec app npm run db:seed
 ```
+
+## Key Screens
+
+- `/onboarding`: Supabase login (email/password for test)
+- `/profile/setup`: profile details
+- `/events/new`: create event
+- `/events/[id]`: event detail
+- `/events/[id]/manage`: owner actions
+- `/notifications`: notifications
 
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 

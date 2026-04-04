@@ -1,11 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-const fallbackAvatar =
-  "https://api.dicebear.com/7.x/avataaars/svg?seed=default";
-
-const formatTime = (value: Date) => value.toTimeString().slice(0, 5);
-
 export async function GET(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -14,10 +9,10 @@ export async function GET(
   const event = await prisma.event.findUnique({
     where: { id },
     include: {
-      organizer: true,
-      hashtags: true,
+      owner: true,
       participants: { include: { user: true } },
-      dateOptions: { include: { participants: true } },
+      timeCandidates: { include: { votes: true } },
+      placeCandidates: { include: { votes: true } },
     },
   });
 
@@ -26,42 +21,67 @@ export async function GET(
   }
 
   const participants = event.participants.map((participant) => ({
-    id: participant.userId,
-    name: participant.user.username,
-    avatarUrl: participant.user.avatarUrl ?? fallbackAvatar,
-    joinedAt: participant.joinedAt.toISOString(),
+    userId: participant.userId,
+    displayName: participant.user.displayName,
+    avatarIcon: participant.user.avatarIcon,
     status: participant.status,
+    role: participant.role,
   }));
 
-  const dateOptions = event.dateOptions.map((option) => ({
-    id: option.id,
-    date: option.optionDate.toISOString(),
-    startTime: formatTime(option.startTime),
-    endTime: formatTime(option.endTime),
-    availableParticipants: option.participants.map(
-      (participant) => participant.userId
-    ),
-  }));
+  const timeCandidates = event.timeCandidates
+    .map((candidate) => {
+      const availableVotes = candidate.votes.filter((vote) => vote.isAvailable).length;
+      return {
+        id: candidate.id,
+        startTime: candidate.startTime,
+        endTime: candidate.endTime,
+        score: candidate.score + availableVotes,
+        source: candidate.source,
+        proposedBy: candidate.proposedBy,
+        availableVotes,
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
 
-  const currentParticipants = participants.filter(
-    (participant) => participant.status !== "declined"
-  ).length;
+  const placeCandidates = event.placeCandidates
+    .map((candidate) => {
+      const totalScore = candidate.votes.reduce((acc, vote) => acc + vote.score, 0);
+      return {
+        id: candidate.id,
+        placeId: candidate.placeId,
+        name: candidate.name,
+        address: candidate.address,
+        lat: candidate.lat,
+        lng: candidate.lng,
+        priceLevel: candidate.priceLevel,
+        score: candidate.score + totalScore,
+        source: candidate.source,
+        proposedBy: candidate.proposedBy,
+      };
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3);
 
   return NextResponse.json({
     id: event.id,
-    title: event.title,
-    organizerId: event.organizerId,
-    organizerName: event.organizer.username,
-    organizerAvatar: event.organizer.avatarUrl ?? fallbackAvatar,
-    date: event.eventDate ? event.eventDate.toISOString() : new Date().toISOString(),
-    location: event.location ?? "",
-    hashtags: event.hashtags.map((tag) => tag.tag),
-    imageUrl: event.imageUrl ?? undefined,
-    description: event.description ?? "",
-    price: event.priceCents ?? undefined,
-    maxParticipants: event.maxParticipants ?? participants.length,
-    currentParticipants,
+    purpose: event.purpose,
+    visibility: event.visibility,
+    capacity: event.capacity,
+    status: event.status,
+    scheduleMode: event.scheduleMode,
+    fixedStartTime: event.fixedStartTime,
+    fixedEndTime: event.fixedEndTime,
+    fixedPlaceId: event.fixedPlaceId,
+    fixedPlaceName: event.fixedPlaceName,
+    fixedPlaceAddress: event.fixedPlaceAddress,
+    owner: {
+      userId: event.owner.userId,
+      displayName: event.owner.displayName,
+      avatarIcon: event.owner.avatarIcon,
+    },
     participants,
-    dateOptions,
+    timeCandidates,
+    placeCandidates,
   });
 }

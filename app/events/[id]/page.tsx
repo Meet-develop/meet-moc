@@ -1,342 +1,430 @@
 "use client";
 
-import { useParams, useRouter } from "next/navigation";
-import type { EventDetail } from "@/lib/event-detail-data";
-import Image from "next/image";
-import { motion } from "framer-motion";
-import {
-  Calendar,
-  MapPin,
-  User,
-  Users,
-  DollarSign,
-  ArrowLeft,
-  Heart,
-  Share2,
-} from "lucide-react";
-import { DateScheduler } from "@/components/features/events/date-scheduler";
-import { ParticipantList } from "@/components/features/events/participant-list";
-import { RelationshipButton } from "@/components/features/relationship/relationship-button";
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { useParams } from "next/navigation";
+import { supabase } from "@/lib/supabase/client";
+import { AvatarName } from "@/components/ui/avatar-name";
+
+type EventDetail = {
+  id: string;
+  purpose: string;
+  visibility: "public" | "limited" | "private";
+  capacity: number;
+  status: "open" | "confirmed" | "completed" | "cancelled";
+  scheduleMode: "fixed" | "candidate";
+  fixedStartTime?: string | null;
+  fixedEndTime?: string | null;
+  fixedPlaceId?: string | null;
+  fixedPlaceName?: string | null;
+  fixedPlaceAddress?: string | null;
+  owner: { userId: string; displayName: string; avatarIcon?: string | null };
+  participants: {
+    userId: string;
+    displayName: string;
+    avatarIcon?: string | null;
+    status: string;
+    role: string;
+  }[];
+  timeCandidates: {
+    id: string;
+    startTime: string;
+    endTime: string;
+    score: number;
+    source: "system" | "proposal";
+    proposedBy?: string | null;
+    availableVotes: number;
+  }[];
+  placeCandidates: {
+    id: string;
+    placeId: string;
+    name: string;
+    address: string;
+    lat: number;
+    lng: number;
+    priceLevel?: number | null;
+    score: number;
+    source: "system" | "proposal";
+    proposedBy?: string | null;
+  }[];
+};
+
+type PlaceResult = {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  priceLevel?: number;
+};
+
+const formatStart = (start?: string | null) => {
+  if (!start) return "未確定";
+  const startDate = new Date(start);
+  return `${startDate.toLocaleDateString("ja-JP", {
+    month: "short",
+    day: "numeric",
+  })} ${startDate.toLocaleTimeString("ja-JP", {
+    hour: "2-digit",
+    minute: "2-digit",
+  })}`;
+};
 
 export default function EventDetailPage() {
   const params = useParams();
-  const router = useRouter();
   const eventId = params.id as string;
   const [event, setEvent] = useState<EventDetail | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [hasError, setHasError] = useState(false);
-  const [isLiked, setIsLiked] = useState(false);
-  const [hasJoined, setHasJoined] = useState(false);
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
 
   useEffect(() => {
-    let isMounted = true;
+    const loadUser = async () => {
+      const { data } = await supabase.auth.getSession();
+      setUserId(data.session?.user?.id ?? null);
+    };
 
+    loadUser();
+  }, []);
+
+  useEffect(() => {
     const loadEvent = async () => {
-      try {
-        const response = await fetch(`/api/events/${eventId}`);
-
-        if (!response.ok) {
-          throw new Error("Failed to fetch event");
-        }
-
-        const data = (await response.json()) as EventDetail;
-
-        if (isMounted) {
-          setEvent(data);
-        }
-      } catch (error) {
-        console.error(error);
-        if (isMounted) {
-          setHasError(true);
-        }
-      } finally {
-        if (isMounted) {
-          setIsLoading(false);
-        }
+      const response = await fetch(`/api/events/${eventId}`);
+      if (!response.ok) {
+        setIsLoading(false);
+        return;
       }
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+      setIsLoading(false);
     };
 
-    if (eventId) {
-      loadEvent();
-    }
-
-    return () => {
-      isMounted = false;
-    };
+    loadEvent();
   }, [eventId]);
+
+  const participantStatus = useMemo(() => {
+    if (!event || !userId) return null;
+    const participant = event.participants.find((item) => item.userId === userId);
+    return participant?.status ?? null;
+  }, [event, userId]);
+
+  const isOwner = event?.owner.userId === userId;
+
+  const handleJoin = async () => {
+    if (!userId) return;
+    await fetch(`/api/events/${eventId}/join`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+    const response = await fetch(`/api/events/${eventId}`);
+    const data = (await response.json()) as EventDetail;
+    setEvent(data);
+  };
+
+  const handleTimeVote = async (candidateId: string) => {
+    if (!userId) return;
+    await fetch(`/api/events/${eventId}/votes/time`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, candidateId, isAvailable: true }),
+    });
+    const response = await fetch(`/api/events/${eventId}`);
+    if (response.ok) {
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+    }
+  };
+
+  const handlePlaceVote = async (candidateId: string, score: number) => {
+    if (!userId) return;
+    await fetch(`/api/events/${eventId}/votes/place`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, candidateId, score }),
+    });
+    const response = await fetch(`/api/events/${eventId}`);
+    if (response.ok) {
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+    }
+  };
+
+  const handleTimeProposal = async (startTime: string) => {
+    if (!userId) return;
+    await fetch(`/api/events/${eventId}/proposals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, type: "time", startTime }),
+    });
+    const response = await fetch(`/api/events/${eventId}`);
+    if (response.ok) {
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+    }
+  };
+
+  const handlePlaceSearch = async () => {
+    if (!placeQuery.trim()) return;
+    const response = await fetch(`/api/places/search?query=${encodeURIComponent(placeQuery)}`);
+    if (!response.ok) return;
+    const data = (await response.json()) as { places: PlaceResult[] };
+    setPlaceResults(data.places ?? []);
+  };
+
+  const handlePlaceProposal = async (place: PlaceResult) => {
+    if (!userId) return;
+    await fetch(`/api/events/${eventId}/proposals`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId, type: "place", place }),
+    });
+    const response = await fetch(`/api/events/${eventId}`);
+    if (response.ok) {
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+    }
+  };
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center">
-        <div className="text-gray-500">読み込み中...</div>
+      <div className="min-h-screen px-6 py-20 text-center text-sm text-[var(--muted)]">
+        読み込み中...
       </div>
     );
   }
 
-  if (!event || hasError) {
+  if (!event) {
     return (
-      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold text-gray-800 mb-2">
-            イベントが見つかりません
-          </h1>
-          <button
-            onClick={() => router.push("/")}
-            className="text-[#FF6B6B] hover:underline"
-          >
-            ホームに戻る
-          </button>
-        </div>
+      <div className="min-h-screen px-6 py-20 text-center text-sm text-[var(--muted)]">
+        イベントが見つかりません。
       </div>
     );
   }
-
-  const handleJoin = () => {
-    setHasJoined(true);
-    // 実際はAPIに送信
-    console.log("Joined event:", eventId);
-  };
-
-  const handleShare = () => {
-    // シェア機能
-    if (navigator.share) {
-      navigator.share({
-        title: event.title,
-        text: event.description,
-        url: window.location.href,
-      });
-    } else {
-      // Fallback: クリップボードにコピー
-      navigator.clipboard.writeText(window.location.href);
-      alert("URLをクリップボードにコピーしました！");
-    }
-  };
 
   return (
-    <div className="min-h-screen bg-[#F8F9FA]">
-      {/* ヘッダー */}
-      <header className="sticky top-0 z-50 bg-white shadow-sm">
-        <div className="max-w-7xl mx-auto px-4 py-4 flex items-center justify-between">
-          <button
-            onClick={() => router.back()}
-            className="flex items-center gap-2 text-gray-700 hover:text-gray-900 transition-colors"
-          >
-            <ArrowLeft size={20} />
-            <span className="font-medium">戻る</span>
-          </button>
-          <h1 className="text-xl font-bold bg-gradient-to-r from-[#FF6B6B] to-[#845EF7] bg-clip-text text-transparent">
-            Meet & Moc
-          </h1>
-          <div className="flex gap-2">
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={() => setIsLiked(!isLiked)}
-              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-50 bg-white/95 backdrop-blur shadow-sm">
+        <div className="mx-auto flex max-w-md flex-col gap-3 px-4 py-4 sm:max-w-5xl sm:flex-row sm:items-center sm:justify-between sm:px-6">
+          <Link href="/" className="text-sm font-semibold text-[var(--muted)]">
+            ← フィードに戻る
+          </Link>
+          {isOwner && (
+            <Link
+              href={`/events/${event.id}/manage`}
+              className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
             >
-              <Heart
-                size={24}
-                className={isLiked ? "fill-red-500 text-red-500" : "text-gray-600"}
-              />
-            </motion.button>
-            <motion.button
-              whileTap={{ scale: 0.9 }}
-              onClick={handleShare}
-              className="p-2 rounded-full hover:bg-gray-100 transition-colors"
-            >
-              <Share2 size={24} className="text-gray-600" />
-            </motion.button>
-          </div>
+              <span className="material-symbols-rounded">settings</span>
+              オーナー管理
+            </Link>
+          )}
         </div>
       </header>
 
-      {/* メインコンテンツ */}
-      <main className="max-w-4xl mx-auto px-4 py-8">
-        {/* ヒーロー画像 */}
-        {event.imageUrl && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95 }}
-            animate={{ opacity: 1, scale: 1 }}
-            className="relative h-96 rounded-3xl overflow-hidden shadow-2xl mb-8"
-          >
-            <Image
-              src={event.imageUrl}
-              alt={event.title}
-              fill
-              className="object-cover"
-              unoptimized
-            />
-            <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-transparent" />
-
-            {/* タイトルオーバーレイ */}
-            <div className="absolute bottom-0 left-0 right-0 p-8">
-              <h1 className="text-4xl font-bold text-white mb-4 drop-shadow-lg">
-                {event.title}
-              </h1>
-              <div className="flex flex-wrap gap-2">
-                {event.hashtags.map((tag) => (
-                  <span
-                    key={tag}
-                    className="px-3 py-1 bg-white/90 backdrop-blur-sm text-purple-700 rounded-full text-sm font-medium"
-                  >
-                    {tag}
-                  </span>
-                ))}
-              </div>
-            </div>
-          </motion.div>
+      <main className="mx-auto max-w-md px-4 py-8 sm:max-w-5xl sm:px-6 sm:py-10">
+        {!userId && (
+          <div className="mb-6 rounded-3xl bg-white/80 p-4 text-sm text-[var(--muted)] shadow-sm">
+            参加や投票にはログインが必要です。
+            <Link href="/onboarding" className="ml-2 text-[var(--accent)]">
+              ログインはこちら
+            </Link>
+          </div>
         )}
-
-        {/* イベント情報カード */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
-          className="bg-white rounded-3xl shadow-lg p-8 mb-6"
-        >
-          <h2 className="text-2xl font-bold text-gray-800 mb-6">
-            イベント詳細
-          </h2>
-
-          <div className="space-y-4 mb-6">
-            {/* 主催者 */}
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-r from-[#FF6B6B] to-[#845EF7] rounded-full flex items-center justify-center">
-                <User className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">主催者</div>
-                <div className="font-medium text-gray-800 flex items-center gap-2">
-                  <div className="relative w-6 h-6 rounded-full overflow-hidden">
-                    <Image
-                      src={event.organizerAvatar}
-                      alt={event.organizerName}
-                      fill
-                      className="object-cover"
-                      unoptimized
-                    />
-                  </div>
-                  {event.organizerName}
-                  <RelationshipButton userId={event.organizerId} compact />
-                </div>
+        <section>
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                {event.visibility}
+              </p>
+              <h1 className="text-3xl font-semibold">{event.purpose}</h1>
+              <div className="mt-3 text-sm text-[var(--muted)]">
+                <AvatarName displayName={event.owner.displayName} avatarIcon={event.owner.avatarIcon} />
               </div>
             </div>
-
-            {/* 日付 */}
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-r from-purple-400 to-pink-500 rounded-full flex items-center justify-center">
-                <Calendar className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">日時</div>
-                <div className="font-medium text-gray-800">
-                  {new Date(event.date).toLocaleDateString("ja-JP", {
-                    year: "numeric",
-                    month: "long",
-                    day: "numeric",
-                    weekday: "long",
-                  })}
-                </div>
-              </div>
+            <div className="text-right">
+              <p className="text-sm text-[var(--muted)]">状態</p>
+              <p className="text-lg font-semibold text-[var(--accent)]">{event.status}</p>
             </div>
+          </div>
 
-            {/* 場所 */}
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-r from-blue-400 to-cyan-500 rounded-full flex items-center justify-center">
-                <MapPin className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">場所</div>
-                <div className="font-medium text-gray-800">
-                  {event.location}
-                </div>
-              </div>
+          <div className="mt-6 grid gap-4 border-t border-orange-100 pt-4 md:grid-cols-2">
+            <div className="p-1">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                日程
+              </p>
+              <p className="mt-2 text-sm font-semibold">
+                {formatStart(event.fixedStartTime)}
+              </p>
             </div>
-
-            {/* 参加人数 */}
-            <div className="flex items-center gap-3">
-              <div className="w-12 h-12 bg-gradient-to-r from-green-400 to-emerald-500 rounded-full flex items-center justify-center">
-                <Users className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <div className="text-sm text-gray-600">参加人数</div>
-                <div className="font-medium text-gray-800">
-                  {event.currentParticipants} / {event.maxParticipants} 名
-                </div>
-              </div>
+            <div className="p-1">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                お店
+              </p>
+              <p className="mt-2 text-sm font-semibold">
+                {event.fixedPlaceName ?? "候補から決定"}
+              </p>
+              <p className="text-xs text-[var(--muted)]">
+                {event.fixedPlaceAddress ?? ""}
+              </p>
             </div>
+          </div>
 
-            {/* 金額 */}
-            {event.price && (
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 bg-gradient-to-r from-yellow-400 to-orange-500 rounded-full flex items-center justify-center">
-                  <DollarSign className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                  <div className="text-sm text-gray-600">参加費</div>
-                  <div className="font-medium text-gray-800">
-                    ¥{event.price.toLocaleString()}
-                  </div>
-                </div>
-              </div>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-600">
+              参加 {event.participants.filter((p) => p.status === "approved").length}/{event.capacity}
+            </span>
+            {participantStatus ? (
+              <span className="rounded-full bg-emerald-100 px-3 py-1 text-xs font-semibold text-emerald-700">
+                {participantStatus}
+              </span>
+            ) : (
+              <button
+                onClick={handleJoin}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
+              >
+                <span className="material-symbols-rounded">send</span>
+                参加希望を送る
+              </button>
             )}
           </div>
+        </section>
 
-          {/* 説明 */}
-          <div className="p-4 bg-gray-50 rounded-2xl">
-            <h3 className="font-bold text-gray-800 mb-2">イベント内容</h3>
-            <p className="text-gray-700 leading-relaxed">{event.description}</p>
-          </div>
-        </motion.div>
-
-        {/* 日程調整 */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.2 }}
-          className="mb-6"
-        >
-          <DateScheduler
-            dateOptions={event.dateOptions}
-            participants={event.participants}
-          />
-        </motion.div>
-
-        {/* 参加者リスト */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.3 }}
-          className="mb-6"
-        >
-          <ParticipantList participants={event.participants} />
-        </motion.div>
-
-        {/* 参加ボタン */}
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.4 }}
-          className="sticky bottom-4 z-40"
-        >
-          {hasJoined ? (
-            <div className="bg-white rounded-full shadow-2xl p-4 text-center">
-              <span className="text-green-600 font-bold text-lg">
-                ✓ 参加表明済み
-              </span>
+        {event.scheduleMode === "candidate" && (
+          <section className="mt-8 grid gap-6 border-t border-orange-100 pt-6 md:grid-cols-2">
+            <div>
+              <h2 className="flex items-center gap-2 text-lg font-semibold">
+                日程候補
+                <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-sky-700">
+                  <span className="material-symbols-rounded text-sm">auto_awesome</span>
+                  AI推測 TOP3
+                </span>
+              </h2>
+              <ul className="mt-4 space-y-3 text-sm text-[var(--muted)]">
+                {event.timeCandidates.map((candidate) => (
+                  <li key={candidate.id} className="rounded-2xl bg-white p-4 shadow-sm">
+                    <p className="font-semibold text-[var(--foreground)]">
+                      {formatStart(candidate.startTime)}
+                    </p>
+                    <p className="text-xs">スコア: {candidate.score}</p>
+                    <button
+                      onClick={() => handleTimeVote(candidate.id)}
+                      className="mt-2 flex w-full items-center justify-center gap-1 rounded-full bg-white px-3 py-1 text-xs font-semibold text-[var(--accent)] shadow-sm sm:w-auto"
+                    >
+                      <span className="material-symbols-rounded">thumb_up</span>
+                      参加可能に投票
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-4 rounded-2xl bg-white p-3 shadow-sm">
+                <p className="text-xs text-[var(--muted)]">別日程の提案</p>
+                <TimeProposalForm onSubmit={handleTimeProposal} />
+              </div>
             </div>
-          ) : (
-            <motion.button
-              whileHover={{ scale: 1.02 }}
-              whileTap={{ scale: 0.98 }}
-              onClick={handleJoin}
-              className="w-full py-5 bg-gradient-to-r from-[#FF6B6B] to-[#845EF7] text-white rounded-full font-bold text-xl shadow-2xl hover:shadow-3xl transition-shadow"
-            >
-              このイベントに参加する
-            </motion.button>
-          )}
-        </motion.div>
+
+            <div>
+              <h2 className="flex items-center gap-2 text-lg font-semibold">
+                お店候補
+                <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-amber-700">
+                  <span className="material-symbols-rounded text-sm">auto_awesome</span>
+                  AI推測 TOP3
+                </span>
+              </h2>
+              <ul className="mt-4 space-y-3 text-sm text-[var(--muted)]">
+                {event.placeCandidates.map((candidate) => (
+                  <li key={candidate.id} className="rounded-2xl bg-white p-4 shadow-sm">
+                    <p className="font-semibold text-[var(--foreground)]">{candidate.name}</p>
+                    <p className="text-xs">{candidate.address}</p>
+                    <div className="mt-2">
+                      <span className="text-xs">好み:</span>
+                      <div className="mt-2 grid grid-cols-5 gap-2">
+                        {[1, 2, 3, 4, 5].map((score) => (
+                          <button
+                            key={score}
+                            onClick={() => handlePlaceVote(candidate.id, score)}
+                            className="rounded-full bg-white px-2 py-1 text-xs shadow-sm"
+                          >
+                            {score}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </li>
+                ))}
+              </ul>
+              <div className="mt-4 rounded-2xl bg-white p-3 shadow-sm">
+                <p className="text-xs text-[var(--muted)]">お店の提案</p>
+                <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={placeQuery}
+                    onChange={(event) => setPlaceQuery(event.target.value)}
+                    placeholder="例: 恵比寿 イタリアン"
+                    className="flex-1 rounded-full bg-white px-4 py-2 text-xs shadow-sm"
+                  />
+                  <button
+                    onClick={handlePlaceSearch}
+                    className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent-2)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
+                  >
+                    <span className="material-symbols-rounded">search</span>
+                    検索
+                  </button>
+                </div>
+                {placeResults.length > 0 && (
+                  <ul className="mt-3 space-y-2 text-xs">
+                    {placeResults.map((place) => (
+                      <li key={place.placeId} className="flex flex-col gap-2 rounded-xl bg-white px-2 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between">
+                        <span>{place.name}</span>
+                        <button
+                          onClick={() => handlePlaceProposal(place)}
+                          className="flex w-full items-center justify-center gap-1 rounded-full bg-white px-3 py-1 text-xs shadow-sm sm:w-auto"
+                        >
+                          <span className="material-symbols-rounded">add_circle</span>
+                          提案
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        <section className="mt-8 border-t border-orange-100 pt-6">
+          <h2 className="text-lg font-semibold">参加者</h2>
+          <ul className="mt-4 grid gap-3 md:grid-cols-2">
+            {event.participants.map((participant) => (
+              <li key={participant.userId} className="rounded-2xl bg-white p-4 shadow-sm">
+                <AvatarName displayName={participant.displayName} avatarIcon={participant.avatarIcon} />
+                <p className="text-xs text-[var(--muted)]">{participant.status}</p>
+              </li>
+            ))}
+          </ul>
+        </section>
       </main>
+    </div>
+  );
+}
+
+function TimeProposalForm({ onSubmit }: { onSubmit: (start: string) => void }) {
+  const [start, setStart] = useState("");
+
+  return (
+    <div className="mt-2 flex flex-col gap-2">
+      <input
+        type="datetime-local"
+        value={start}
+        onChange={(event) => setStart(event.target.value)}
+        className="rounded-full bg-white px-4 py-2 text-xs shadow-sm"
+      />
+      <button
+        onClick={() => onSubmit(start)}
+        className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white"
+      >
+        <span className="material-symbols-rounded">event</span>
+        日程を提案
+      </button>
     </div>
   );
 }
