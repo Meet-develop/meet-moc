@@ -1,7 +1,7 @@
 "use client";
 
 import { useParams, useRouter } from "next/navigation";
-import { mockEventDetails } from "@/lib/event-detail-data";
+import type { EventDetail } from "@/lib/event-detail-data";
 import Image from "next/image";
 import { motion } from "framer-motion";
 import {
@@ -17,18 +17,64 @@ import {
 import { DateScheduler } from "@/components/features/events/date-scheduler";
 import { ParticipantList } from "@/components/features/events/participant-list";
 import { RelationshipButton } from "@/components/features/relationship/relationship-button";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function EventDetailPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.id as string;
-
-  const event = mockEventDetails[eventId];
+  const [event, setEvent] = useState<EventDetail | null>(null);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
   const [isLiked, setIsLiked] = useState(false);
   const [hasJoined, setHasJoined] = useState(false);
 
-  if (!event) {
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadEvent = async () => {
+      try {
+        const response = await fetch(`/api/events/${eventId}`);
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch event");
+        }
+
+        const data = (await response.json()) as EventDetail;
+
+        if (isMounted) {
+          setEvent(data);
+        }
+      } catch (error) {
+        console.error(error);
+        if (isMounted) {
+          setHasError(true);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    if (eventId) {
+      loadEvent();
+    }
+
+    return () => {
+      isMounted = false;
+    };
+  }, [eventId]);
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center">
+        <div className="text-gray-500">読み込み中...</div>
+      </div>
+    );
+  }
+
+  if (!event || hasError) {
     return (
       <div className="min-h-screen bg-[#F8F9FA] flex items-center justify-center">
         <div className="text-center">

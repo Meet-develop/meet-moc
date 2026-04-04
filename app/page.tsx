@@ -2,20 +2,66 @@
 
 import { NotesScroll } from "@/components/features/notes/notes-scroll";
 import { EventFeed } from "@/components/features/events/event-card";
-import { mockNotes, mockEvents } from "@/lib/mock-data";
+import type { Event, Note } from "@/lib/mock-data";
 import { useRelationship } from "@/contexts/relationship-context";
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Bell } from "lucide-react";
 import { useRouter } from "next/navigation";
 
 export default function Home() {
-    const router = useRouter();
+  const router = useRouter();
   const { isBlocked, isHot } = useRelationship();
+  const [events, setEvents] = useState<Event[]>([]);
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadData = async () => {
+      try {
+        const [eventsResponse, notesResponse] = await Promise.all([
+          fetch("/api/events"),
+          fetch("/api/notes"),
+        ]);
+
+        if (!eventsResponse.ok || !notesResponse.ok) {
+          throw new Error("Failed to fetch data");
+        }
+
+        const [eventsData, notesData] = await Promise.all([
+          eventsResponse.json(),
+          notesResponse.json(),
+        ]);
+
+        if (!isMounted) return;
+
+        setEvents(eventsData);
+        setNotes(notesData);
+      } catch (error) {
+        console.error(error);
+        if (isMounted) {
+          setHasError(true);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadData();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   // 好感度に基づいてイベントをフィルタリング・ソート
   const filteredEvents = useMemo(() => {
     // BLOCKされたユーザーのイベントを除外
-    const unblockedEvents = mockEvents.filter(
+    const unblockedEvents = events.filter(
       (event) => !isBlocked(event.organizerId)
     );
 
@@ -27,7 +73,7 @@ export default function Home() {
       if (!aIsHot && bIsHot) return 1;
       return 0;
     });
-  }, [isBlocked, isHot]);
+  }, [events, isBlocked, isHot]);
 
   return (
     <div className="min-h-screen bg-[#F8F9FA]">
@@ -48,7 +94,7 @@ export default function Home() {
       </header>
 
       {/* Instagram風ノート */}
-      <NotesScroll notes={mockNotes} />
+      <NotesScroll notes={notes} />
 
       {/* メインコンテンツ */}
       <main className="max-w-7xl mx-auto px-4 py-8">
@@ -61,8 +107,21 @@ export default function Home() {
           </p>
         </div>
 
-        {/* Tinder風イベントフィード */}
-        <EventFeed events={filteredEvents} />
+        {hasError && (
+          <div className="mb-6 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+            データの取得に失敗しました。時間をおいて再読み込みしてください。
+          </div>
+        )}
+
+        {isLoading ? (
+          <div className="text-center text-gray-500">読み込み中...</div>
+        ) : filteredEvents.length > 0 ? (
+          <EventFeed events={filteredEvents} />
+        ) : (
+          <div className="text-center text-gray-500">
+            現在表示できるイベントがありません。
+          </div>
+        )}
       </main>
     </div>
   );

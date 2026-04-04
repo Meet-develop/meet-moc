@@ -18,6 +18,36 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Docker (PostgreSQL)
+
+This project can run entirely in Docker with a PostgreSQL database.
+
+```bash
+docker compose up --build
+```
+
+- App: http://localhost:3000
+- Postgres: localhost:5432 (db: meet_moc, user: postgres, password: postgres)
+
+To stop and remove containers:
+
+```bash
+docker compose down
+```
+
+## Prisma (Schema + Seed)
+
+Prisma is set up for type-safe DB access. The database schema is defined in
+`prisma/schema.prisma` and applied via Prisma migrations.
+
+Apply migrations, generate the Prisma client, and seed data inside the app container:
+
+```bash
+docker compose exec app npm run db:migrate
+docker compose exec app npx prisma generate
+docker compose exec app npm run db:seed
+```
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More

@@ -1,18 +1,56 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { InvitationCard } from "@/components/features/invitations/invitation-card";
-import { mockInvitations, Invitation } from "@/lib/invitation-data";
+import type { Invitation } from "@/lib/invitation-data";
 import { ArrowLeft, Bell, CheckCircle } from "lucide-react";
 import { useRouter } from "next/navigation";
 import Image from "next/image";
 
 export default function InvitationsPage() {
   const router = useRouter();
-  const [invitations, setInvitations] = useState<Invitation[]>(mockInvitations);
+  const [invitations, setInvitations] = useState<Invitation[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
 
-  const handleRespond = (
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadInvitations = async () => {
+      try {
+        const response = await fetch("/api/invitations");
+
+        if (!response.ok) {
+          throw new Error("Failed to fetch invitations");
+        }
+
+        const data = (await response.json()) as Invitation[];
+
+        if (isMounted) {
+          setInvitations(data);
+        }
+      } catch (error) {
+        console.error(error);
+        if (isMounted) {
+          setHasError(true);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadInvitations();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const handleRespond = async (
     invitationId: string,
     response: "accepted" | "declined" | "maybe",
     message?: string
@@ -23,8 +61,24 @@ export default function InvitationsPage() {
       )
     );
 
-    console.log("Response:", { invitationId, response, message });
-    // 実際はAPIに送信
+    setActionError(null);
+
+    try {
+      const apiResponse = await fetch(`/api/invitations/${invitationId}`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: response, message }),
+        }
+      );
+
+      if (!apiResponse.ok) {
+        throw new Error("Failed to update invitation");
+      }
+    } catch (error) {
+      console.error(error);
+      setActionError("招待の更新に失敗しました。再度お試しください。");
+    }
   };
 
   const pendingInvitations = invitations.filter(
@@ -55,6 +109,18 @@ export default function InvitationsPage() {
 
       {/* メインコンテンツ */}
       <main className="max-w-2xl mx-auto px-4 py-8">
+        {hasError && (
+          <div className="mb-6 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+            招待データの取得に失敗しました。時間をおいて再読み込みしてください。
+          </div>
+        )}
+
+        {actionError && (
+          <div className="mb-6 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+            {actionError}
+          </div>
+        )}
+
         {/* 未対応の招待 */}
         <div className="mb-8">
           <div className="flex items-center gap-2 mb-4">
@@ -70,7 +136,15 @@ export default function InvitationsPage() {
           </div>
 
           <AnimatePresence mode="popLayout">
-            {pendingInvitations.length > 0 ? (
+            {isLoading ? (
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="text-center py-12 bg-white rounded-3xl shadow-md"
+              >
+                <p className="text-gray-500">読み込み中...</p>
+              </motion.div>
+            ) : pendingInvitations.length > 0 ? (
               <div className="space-y-4">
                 {pendingInvitations.map((invitation) => (
                   <InvitationCard

@@ -1,11 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { CategorySwipe } from "@/components/features/profile/category-swipe";
 import { AllergenSelector } from "@/components/features/profile/allergen-selector";
 import { ProgressBar } from "@/components/features/profile/progress-bar";
-import { categories, allergens } from "@/lib/setup-data";
+import type { Allergen, Category } from "@/lib/setup-data";
 import { useRouter } from "next/navigation";
 import { Sparkles } from "lucide-react";
 
@@ -14,9 +14,55 @@ export default function SetupPage() {
   const [step, setStep] = useState<1 | 2 | 3>(1);
   const [selectedCategories, setSelectedCategories] = useState<string[]>([]);
   const [selectedAllergens, setSelectedAllergens] = useState<string[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<Category[]>([]);
+  const [allergenOptions, setAllergenOptions] = useState<Allergen[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [hasError, setHasError] = useState(false);
 
   const totalSteps = 2;
   const progress = (step / totalSteps) * 100;
+
+  useEffect(() => {
+    let isMounted = true;
+
+    const loadOptions = async () => {
+      try {
+        const [categoriesResponse, allergensResponse] = await Promise.all([
+          fetch("/api/categories"),
+          fetch("/api/allergens"),
+        ]);
+
+        if (!categoriesResponse.ok || !allergensResponse.ok) {
+          throw new Error("Failed to fetch setup options");
+        }
+
+        const [categoriesData, allergensData] = await Promise.all([
+          categoriesResponse.json(),
+          allergensResponse.json(),
+        ]);
+
+        if (!isMounted) return;
+
+        setCategoryOptions(categoriesData);
+        setAllergenOptions(allergensData);
+      } catch (error) {
+        console.error(error);
+        if (isMounted) {
+          setHasError(true);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+
+    loadOptions();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
 
   const handleCategoriesComplete = (categories: string[]) => {
     setSelectedCategories(categories);
@@ -67,6 +113,16 @@ export default function SetupPage() {
 
       {/* メインコンテンツ */}
       <main className="max-w-7xl mx-auto px-4 py-12">
+        {hasError && (
+          <div className="mb-8 rounded-2xl bg-red-50 p-4 text-sm text-red-700">
+            セットアップ情報の取得に失敗しました。再読み込みしてください。
+          </div>
+        )}
+
+        {isLoading && (
+          <div className="mb-8 text-center text-gray-500">読み込み中...</div>
+        )}
+
         <AnimatePresence mode="wait">
           {step === 1 && (
             <motion.div
@@ -87,10 +143,16 @@ export default function SetupPage() {
                   右にスワイプ = 興味あり | 左にスワイプ = 興味なし
                 </p>
               </div>
-              <CategorySwipe
-                categories={categories}
-                onComplete={handleCategoriesComplete}
-              />
+              {!isLoading && categoryOptions.length > 0 ? (
+                <CategorySwipe
+                  categories={categoryOptions}
+                  onComplete={handleCategoriesComplete}
+                />
+              ) : (
+                <div className="text-center text-gray-500">
+                  選択肢を準備中です...
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -102,11 +164,17 @@ export default function SetupPage() {
               exit={{ opacity: 0, x: -100 }}
               transition={{ duration: 0.3 }}
             >
-              <AllergenSelector
-                allergens={allergens}
-                onComplete={handleAllergensComplete}
-                onBack={handleBack}
-              />
+              {!isLoading && allergenOptions.length > 0 ? (
+                <AllergenSelector
+                  allergens={allergenOptions}
+                  onComplete={handleAllergensComplete}
+                  onBack={handleBack}
+                />
+              ) : (
+                <div className="text-center text-gray-500">
+                  選択肢を準備中です...
+                </div>
+              )}
             </motion.div>
           )}
 
@@ -142,7 +210,7 @@ export default function SetupPage() {
                 <h3 className="font-bold text-gray-800 mb-3">選択した興味</h3>
                 <div className="flex flex-wrap gap-2 mb-4">
                   {selectedCategories.map((catId) => {
-                    const cat = categories.find((c) => c.id === catId);
+                    const cat = categoryOptions.find((c) => c.id === catId);
                     return cat ? (
                       <span
                         key={catId}
@@ -161,7 +229,7 @@ export default function SetupPage() {
                     </h3>
                     <div className="flex flex-wrap gap-2">
                       {selectedAllergens.map((allergenId) => {
-                        const allergen = allergens.find(
+                        const allergen = allergenOptions.find(
                           (a) => a.id === allergenId
                         );
                         return allergen ? (
