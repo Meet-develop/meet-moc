@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
@@ -175,6 +175,7 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const latestEventRequestRef = useRef(0);
   const [friends, setFriends] = useState<
     Array<{
       userId: string;
@@ -207,18 +208,46 @@ export default function EventDetailPage() {
   const [authOverlayMode, setAuthOverlayMode] = useState<"login" | "signup">("login");
 
   useEffect(() => {
+    let active = true;
+
     const loadUser = async () => {
       const { data } = await supabase.auth.getSession();
+      if (!active) return;
       setUserId(data.session?.user?.id ?? null);
     };
 
     loadUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user?.id) {
+        setUserId(session.user.id);
+        return;
+      }
+
+      // Guard against transient null sessions on slower devices.
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      setUserId(data.session?.user?.id ?? null);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     const loadEvent = async () => {
+      const requestId = latestEventRequestRef.current + 1;
+      latestEventRequestRef.current = requestId;
+      setIsLoading(true);
       const query = userId ? `?viewerId=${userId}` : "";
-      const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
+      const response = await fetch(`/api/events/${eventId}${query}`);
+      if (requestId !== latestEventRequestRef.current) {
+        return;
+      }
       if (!response.ok) {
         setIsLoading(false);
         return;
