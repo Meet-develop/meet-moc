@@ -11,11 +11,12 @@ type EventDetail = {
   purpose: string;
   status: "open" | "confirmed" | "completed" | "cancelled";
   fixedStartTime?: string | null;
+  fixedPlaceId?: string | null;
   fixedPlaceName?: string | null;
   owner: { userId: string; displayName: string; avatarIcon?: string | null };
   participants: { userId: string; displayName: string; avatarIcon?: string | null; status: string; role: string }[];
   timeCandidates: { id: string; startTime: string; endTime: string; score: number }[];
-  placeCandidates: { id: string; name: string; address: string; score: number }[];
+  placeCandidates: { id: string; placeId: string; name: string; address: string; score: number }[];
 };
 
 const formatStart = (start: string) => {
@@ -37,11 +38,31 @@ export default function EventManagePage() {
   const [timeCandidateId, setTimeCandidateId] = useState<string | null>(null);
   const [placeCandidateId, setPlaceCandidateId] = useState<string | null>(null);
 
+  const applyEventState = (data: EventDetail) => {
+    setEvent(data);
+
+    const matchedTimeCandidate = data.fixedStartTime
+      ? data.timeCandidates.find(
+          (candidate) =>
+            new Date(candidate.startTime).getTime() ===
+            new Date(data.fixedStartTime as string).getTime()
+        )
+      : null;
+    setTimeCandidateId(matchedTimeCandidate?.id ?? data.timeCandidates[0]?.id ?? null);
+
+    const matchedPlaceCandidate = data.fixedPlaceId
+      ? data.placeCandidates.find((candidate) => candidate.placeId === data.fixedPlaceId)
+      : data.fixedPlaceName
+        ? data.placeCandidates.find((candidate) => candidate.name === data.fixedPlaceName)
+        : null;
+    setPlaceCandidateId(matchedPlaceCandidate?.id ?? data.placeCandidates[0]?.id ?? null);
+  };
+
   const refreshEvent = async () => {
     const response = await fetch(`/api/events/${eventId}`);
     if (!response.ok) return;
     const data = (await response.json()) as EventDetail;
-    setEvent(data);
+    applyEventState(data);
   };
 
   useEffect(() => {
@@ -60,7 +81,7 @@ export default function EventManagePage() {
       const response = await fetch(`/api/events/${eventId}`);
       if (!response.ok || !active) return;
       const data = (await response.json()) as EventDetail;
-      setEvent(data);
+      applyEventState(data);
     };
 
     loadEvent();
@@ -75,10 +96,8 @@ export default function EventManagePage() {
     [event]
   );
 
-  const requiresTimeSelection =
-    (event?.fixedStartTime == null) && (event?.timeCandidates.length ?? 0) > 0;
-  const requiresPlaceSelection =
-    (event?.fixedPlaceName == null) && (event?.placeCandidates.length ?? 0) > 0;
+  const requiresTimeSelection = (event?.timeCandidates.length ?? 0) > 0;
+  const requiresPlaceSelection = (event?.placeCandidates.length ?? 0) > 0;
 
   const handleApprove = async (userId: string) => {
     if (!ownerId) return;
@@ -154,11 +173,13 @@ export default function EventManagePage() {
         <section className="mt-8 grid gap-6 pt-6 md:grid-cols-2">
           <div>
             <h2 className="text-lg font-semibold">日程候補</h2>
-            {event.fixedStartTime ? (
-              <div className="mt-4 rounded-2xl bg-orange-50 p-4 text-sm shadow-sm">
-                <p className="text-xs text-[var(--muted)]">固定済み</p>
-                <p className="font-semibold text-[var(--foreground)]">{formatStart(event.fixedStartTime)}</p>
+            {event.fixedStartTime && (
+              <div className="mt-3 rounded-2xl bg-orange-50 p-3 text-xs text-[var(--muted)]">
+                現在の確定: {formatStart(event.fixedStartTime)}
               </div>
+            )}
+            {event.timeCandidates.length === 0 ? (
+              <p className="mt-4 text-sm text-[var(--muted)]">日程候補はありません。</p>
             ) : (
               <ul className="mt-4 space-y-3">
                 {event.timeCandidates.map((candidate) => (
@@ -188,11 +209,13 @@ export default function EventManagePage() {
 
           <div>
             <h2 className="text-lg font-semibold">お店候補</h2>
-            {event.fixedPlaceName ? (
-              <div className="mt-4 rounded-2xl bg-orange-50 p-4 text-sm shadow-sm">
-                <p className="text-xs text-[var(--muted)]">固定済み</p>
-                <p className="font-semibold text-[var(--foreground)]">{event.fixedPlaceName}</p>
+            {event.fixedPlaceName && (
+              <div className="mt-3 rounded-2xl bg-orange-50 p-3 text-xs text-[var(--muted)]">
+                現在の確定: {event.fixedPlaceName}
               </div>
+            )}
+            {event.placeCandidates.length === 0 ? (
+              <p className="mt-4 text-sm text-[var(--muted)]">お店候補はありません。</p>
             ) : (
               <ul className="mt-4 space-y-3">
                 {event.placeCandidates.map((candidate) => (
@@ -232,7 +255,7 @@ export default function EventManagePage() {
             className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span className="material-symbols-rounded">verified</span>
-            最終確定
+            {event.status === "confirmed" ? "確定情報を更新" : "最終確定"}
           </button>
         </div>
       </main>

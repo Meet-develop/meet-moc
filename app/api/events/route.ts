@@ -12,13 +12,47 @@ const dayIndex: Record<string, number> = {
   sat: 6,
 };
 
-const weekdayKeyByIndex: Record<number, "mon" | "tue" | "wed" | "thu" | "fri" | undefined> = {
+const weekdayKeyByIndex: Record<
+  number,
+  "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" | undefined
+> = {
+  0: "sun",
   1: "mon",
   2: "tue",
   3: "wed",
   4: "thu",
   5: "fri",
+  6: "sat",
 };
+
+type PlaceCandidateInput = {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  priceLevel?: number;
+  score: number;
+  source: "system";
+};
+
+const toPlaceCandidateInput = (place: {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  priceLevel?: number;
+}): PlaceCandidateInput => ({
+  placeId: place.placeId,
+  name: place.name,
+  address: place.address,
+  lat: place.lat,
+  lng: place.lng,
+  priceLevel: place.priceLevel,
+  score: 0,
+  source: "system",
+});
 
 const buildDefaultTimeCandidates = (availability?: {
   weekdaySlots?: Record<string, { daytime?: boolean; night?: boolean }>;
@@ -56,9 +90,9 @@ const buildDefaultTimeCandidates = (availability?: {
 
       if (slot.night && candidates.length < 3) {
         const start = new Date(date);
-        start.setHours(19, 30, 0, 0);
+        start.setHours(19, 0, 0, 0);
         const end = new Date(start);
-        end.setHours(21, 30, 0, 0);
+        end.setHours(21, 0, 0, 0);
         candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
       }
 
@@ -106,18 +140,9 @@ const buildDefaultTimeCandidates = (availability?: {
   return candidates;
 };
 
-const buildPlaceCandidates = async (query: string) => {
+const buildPlaceCandidates = async (query: string): Promise<PlaceCandidateInput[]> => {
   const places = await getPlacesForQuery(query);
-  const normalized = places.slice(0, 3).map((place) => ({
-    placeId: place.placeId,
-    name: place.name,
-    address: place.address,
-    lat: place.lat,
-    lng: place.lng,
-    priceLevel: place.priceLevel,
-    score: 0,
-    source: "system" as const,
-  }));
+  const normalized = places.slice(0, 3).map(toPlaceCandidateInput);
 
   if (normalized.length > 0) {
     return normalized;
@@ -133,6 +158,29 @@ const buildPlaceCandidates = async (query: string) => {
     score: 0,
     source: "system" as const,
   }));
+};
+
+const buildPlaceCandidatesFromFavoriteAreas = async (
+  favoriteAreas: string[],
+  purpose: string
+): Promise<PlaceCandidateInput[]> => {
+  const uniqueByPlaceId = new Map<string, PlaceCandidateInput>();
+
+  for (const area of favoriteAreas.slice(0, 3)) {
+    const query = `${area} ${purpose}`.trim();
+    const places = await getPlacesForQuery(query);
+
+    for (const place of places) {
+      if (!uniqueByPlaceId.has(place.placeId)) {
+        uniqueByPlaceId.set(place.placeId, toPlaceCandidateInput(place));
+      }
+      if (uniqueByPlaceId.size >= 3) {
+        return Array.from(uniqueByPlaceId.values()).slice(0, 3);
+      }
+    }
+  }
+
+  return Array.from(uniqueByPlaceId.values()).slice(0, 3);
 };
 
 export async function GET(request: Request) {
@@ -368,11 +416,6 @@ export async function POST(request: Request) {
     }
 
     if (!isPlaceManual) {
-      const fallbackQuery = ownerProfile?.favoriteAreas?.[0]
-        ? `${ownerProfile.favoriteAreas[0]} ${body.purpose}`
-        : body.purpose;
-      const query = body.placeQuery ?? fallbackQuery;
-
       if (body.candidatePlaces && body.candidatePlaces.length > 0) {
         await prisma.eventPlaceCandidate.createMany({
           data: body.candidatePlaces.slice(0, 5).map((candidate) => ({
@@ -387,8 +430,28 @@ export async function POST(request: Request) {
             source: "system",
           })),
         });
-      } else if (query) {
-        const placeCandidates = await buildPlaceCandidates(query);
+      } else {
+        const favoriteAreaCandidates = await buildPlaceCandidatesFromFavoriteAreas(
+          ownerProfile?.favoriteAreas ?? [],
+          body.purpose
+        );
+
+        const fallbackQuery = ownerProfile?.favoriteAreas?.[0]
+          ? `${ownerProfile.favoriteAreas[0]} ${body.purpose}`
+          : body.purpose;
+        const query = body.placeQuery ?? fallbackQuery;
+        const fallbackCandidates = query ? await buildPlaceCandidates(query) : [];
+
+        const mergedByPlaceId = new Map<string, PlaceCandidateInput>();
+        for (const candidate of [...favoriteAreaCandidates, ...fallbackCandidates]) {
+          if (!mergedByPlaceId.has(candidate.placeId)) {
+            mergedByPlaceId.set(candidate.placeId, candidate);
+          }
+          if (mergedByPlaceId.size >= 3) break;
+        }
+
+        const placeCandidates = Array.from(mergedByPlaceId.values()).slice(0, 3);
+
         if (placeCandidates.length > 0) {
           await prisma.eventPlaceCandidate.createMany({
             data: placeCandidates.map((candidate) => ({

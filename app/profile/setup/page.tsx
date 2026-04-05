@@ -185,6 +185,11 @@ export default function ProfileSetupPage() {
   const [isSearching, setIsSearching] = useState(false);
   const [isFrequentPlacesOverlayOpen, setIsFrequentPlacesOverlayOpen] = useState(false);
   const [searchMessage, setSearchMessage] = useState<string | null>(null);
+  const [areaQuery, setAreaQuery] = useState("");
+  const [areaResults, setAreaResults] = useState<PlaceResult[]>([]);
+  const [isAreaSearching, setIsAreaSearching] = useState(false);
+  const [isAreaOverlayOpen, setIsAreaOverlayOpen] = useState(false);
+  const [areaMessage, setAreaMessage] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [stats, setStats] = useState<ProfileStats>(defaultStats);
 
@@ -298,6 +303,51 @@ export default function ProfileSetupPage() {
 
   const removeFrequentPlace = (placeId: string) => {
     setFrequentPlaces((prev) => prev.filter((place) => place.placeId !== placeId));
+  };
+
+  const handleSearchAreas = async () => {
+    if (!areaQuery.trim()) {
+      setAreaMessage("駅名または市区町村名を入力してください。");
+      return;
+    }
+
+    setIsAreaSearching(true);
+    setAreaMessage(null);
+
+    const response = await fetch(
+      `/api/places/search?query=${encodeURIComponent(areaQuery)}&kind=area&limit=8`
+    );
+    if (!response.ok) {
+      setAreaMessage("エリア検索に失敗しました。時間をおいて再度お試しください。");
+      setIsAreaSearching(false);
+      return;
+    }
+
+    const data = (await response.json()) as { places?: PlaceResult[] };
+    setAreaResults(data.places ?? []);
+    setIsAreaSearching(false);
+    if ((data.places ?? []).length === 0) {
+      setAreaMessage("一致する駅・市区町村が見つかりませんでした。");
+    }
+  };
+
+  const addFavoriteArea = (area: PlaceResult) => {
+    setFavoriteAreas((prev) => {
+      if (prev.includes(area.name)) {
+        setAreaMessage("既に追加済みです。");
+        return prev;
+      }
+      if (prev.length >= 3) {
+        setAreaMessage("よく行くエリアは最大3件までです。");
+        return prev;
+      }
+      setAreaMessage(null);
+      return [...prev, area.name];
+    });
+  };
+
+  const removeFavoriteArea = (areaName: string) => {
+    setFavoriteAreas((prev) => prev.filter((area) => area !== areaName));
   };
 
   const handleSubmit = async () => {
@@ -496,16 +546,50 @@ export default function ProfileSetupPage() {
               }}
             />
 
-            <MultiSelectRow
-              title="よく行くエリア"
-              options={[...new Set(["渋谷", "恵比寿", "新宿", "池袋", "銀座", "下北沢", "中目黒", "上野", ...favoriteAreas])]} 
-              selected={favoriteAreas}
-              onToggle={(value) => toggleItem(setFavoriteAreas, value)}
-              addPlaceholder="エリアを追加"
-              onAddOption={(value) => {
-                setFavoriteAreas((prev) => (prev.includes(value) ? prev : [...prev, value]));
-              }}
-            />
+            <section className="py-4">
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold">よく行くエリア（最大3件）</h2>
+                <button
+                  onClick={() => setIsAreaOverlayOpen(true)}
+                  className={plusButtonClass}
+                  aria-label="よく行くエリアを追加"
+                >
+                  <span className="material-symbols-rounded">add</span>
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-[var(--muted)]">
+                Google Places から駅名または市区町村名を選択できます。
+              </p>
+
+              {favoriteAreas.length === 0 ? (
+                <div className="mt-3 rounded-2xl border border-dashed border-orange-200 bg-white/80 px-4 py-5 text-center text-xs text-[var(--muted)]">
+                  「＋」からエリアを追加してください。
+                </div>
+              ) : (
+                <div className="mt-3 space-y-2">
+                  {favoriteAreas.map((area) => (
+                    <div key={area} className="rounded-2xl bg-white p-3 shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="grid h-12 w-12 place-items-center rounded-xl bg-orange-100 text-[var(--accent)]">
+                          <span className="material-symbols-rounded">location_on</span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold text-[var(--foreground)]">{area}</p>
+                          <p className="truncate text-xs text-[var(--muted)]">駅・市区町村</p>
+                        </div>
+                        <button
+                          onClick={() => removeFavoriteArea(area)}
+                          className="grid h-8 w-8 place-items-center rounded-full bg-gray-100 text-gray-500"
+                          aria-label={`${area} を削除`}
+                        >
+                          <span className="material-symbols-rounded text-sm">close</span>
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
 
             <MultiSelectRow
               title="好きなお店ジャンル"
@@ -622,6 +706,71 @@ export default function ProfileSetupPage() {
           )}
         </div>
       </main>
+
+      {isAreaOverlayOpen && (
+        <div className="fixed inset-0 z-[60] flex items-end bg-black/35 p-3 sm:items-center sm:justify-center sm:p-6">
+          <div className="w-full max-w-md rounded-3xl bg-[var(--surface)] p-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold">よく行くエリアを追加</h3>
+              <button
+                onClick={() => setIsAreaOverlayOpen(false)}
+                className="grid h-8 w-8 place-items-center rounded-full bg-white text-[var(--muted)]"
+                aria-label="閉じる"
+              >
+                <span className="material-symbols-rounded">close</span>
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-2">
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <input
+                  value={areaQuery}
+                  onChange={(event) => setAreaQuery(event.target.value)}
+                  placeholder="例: 恵比寿駅 / 渋谷区"
+                  className="flex-1 rounded-full bg-white px-4 py-2 text-sm shadow-sm"
+                />
+                <button
+                  onClick={handleSearchAreas}
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white sm:w-auto"
+                >
+                  <span className="material-symbols-rounded">search</span>
+                  検索
+                </button>
+              </div>
+
+              {areaMessage && <p className="text-xs text-[var(--muted)]">{areaMessage}</p>}
+              {isAreaSearching && <p className="text-xs text-[var(--muted)]">検索中...</p>}
+
+              {!isAreaSearching && areaResults.length > 0 && (
+                <ul className="max-h-64 space-y-2 overflow-y-auto pr-1 text-sm">
+                  {areaResults.map((area) => {
+                    const selected = favoriteAreas.includes(area.name);
+                    return (
+                      <li
+                        key={area.placeId}
+                        className="flex flex-col gap-2 rounded-2xl bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-[var(--foreground)]">{area.name}</p>
+                          <p className="truncate text-xs text-[var(--muted)]">{area.address}</p>
+                        </div>
+                        <button
+                          onClick={() => addFavoriteArea(area)}
+                          disabled={selected || favoriteAreas.length >= 3}
+                          className="flex w-full items-center justify-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-[var(--accent)] disabled:opacity-50 sm:w-auto"
+                        >
+                          <span className="material-symbols-rounded">add</span>
+                          {selected ? "追加済み" : "追加"}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {isFrequentPlacesOverlayOpen && (
         <div className="fixed inset-0 z-[60] flex items-end bg-black/35 p-3 sm:items-center sm:justify-center sm:p-6">

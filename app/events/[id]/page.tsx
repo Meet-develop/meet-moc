@@ -73,6 +73,7 @@ const formatStart = (start?: string | null) => {
   return `${startDate.toLocaleDateString("ja-JP", {
     month: "short",
     day: "numeric",
+    weekday: "short",
   })} ${startDate.toLocaleTimeString("ja-JP", {
     hour: "2-digit",
     minute: "2-digit",

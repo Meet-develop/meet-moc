@@ -48,9 +48,12 @@ export async function POST(
   }
 
   if (body.mode === "link") {
-    if (event.visibility === "private" && body.actorId !== event.ownerId) {
+    if (
+      (event.visibility === "private" || event.status === "confirmed") &&
+      body.actorId !== event.ownerId
+    ) {
       return NextResponse.json(
-        { message: "Only owner can create link invite for private event" },
+        { message: "Only owner can create link invite" },
         { status: 403 }
       );
     }
@@ -100,6 +103,27 @@ export async function POST(
     return NextResponse.json({ created: 0, mode: body.mode ?? "invite" });
   }
 
+  const requestMode =
+    body.mode === "request" ||
+    (event.visibility === "private" && body.actorId !== event.ownerId) ||
+    (event.status === "confirmed" && body.actorId !== event.ownerId);
+
+  if (requestMode && event.status === "confirmed" && body.actorId !== event.ownerId) {
+    await prisma.notification.create({
+      data: {
+        userId: event.ownerId,
+        type: "join_requested",
+        message: `${actor.displayName}さんが ${targetIds.length} 名分の招待許可を申請しました。`,
+        eventId: event.id,
+      },
+    });
+
+    return NextResponse.json({
+      created: targetIds.length,
+      mode: "request",
+    });
+  }
+
   await prisma.eventInvite.createMany({
     data: targetIds.map((friendId) => ({
       eventId: event.id,
@@ -109,10 +133,6 @@ export async function POST(
       status: "pending" as const,
     })),
   });
-
-  const requestMode =
-    body.mode === "request" ||
-    (event.visibility === "private" && body.actorId !== event.ownerId);
 
   if (requestMode) {
     await prisma.notification.create({
