@@ -3,13 +3,18 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { notificationTypeIcon } from "@/lib/notification-content";
 
 type Notification = {
   id: string;
   type: string;
-  message: string;
+  title: string;
+  body: string;
   eventId?: string | null;
   createdAt: string;
+  readAt?: string | null;
+  actionHref?: string;
+  actionLabel?: string;
 };
 
 const periodOptions = [
@@ -18,14 +23,6 @@ const periodOptions = [
   { value: "30d", label: "30日" },
   { value: "90d", label: "90日" },
 ] as const;
-
-const notificationTypeIcon: Record<string, string> = {
-  invite_received: "mail",
-  event_confirmed: "verified",
-  join_requested: "person_add",
-  join_approved: "how_to_reg",
-  friend_added: "group",
-};
 
 export default function NotificationsPage() {
   const [userId, setUserId] = useState<string | null>(null);
@@ -71,14 +68,6 @@ export default function NotificationsPage() {
       </header>
 
       <main className="mx-auto max-w-md px-4 py-8 sm:max-w-4xl sm:px-6 sm:py-10">
-        {!userId && (
-          <div className="mb-6 rounded-3xl bg-white/80 p-4 text-sm text-[var(--muted)] shadow-sm">
-            通知を見るにはログインが必要です。
-            <Link href="/onboarding" className="ml-2 text-[var(--accent)]">
-              ログインはこちら
-            </Link>
-          </div>
-        )}
         <section>
           <div className="mb-4 flex flex-wrap gap-2">
             {periodOptions.map((option) => (
@@ -107,32 +96,34 @@ export default function NotificationsPage() {
           ) : (
             <ul className="mt-6 space-y-3">
               {notifications.map((notification) => (
-                <li
-                  key={notification.id}
-                  className="flex items-center gap-3 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm"
-                >
-                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-orange-100 text-[var(--accent)]">
-                    <span className="material-symbols-rounded">
-                      {notificationTypeIcon[notification.type] ?? "notifications"}
-                    </span>
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-[var(--foreground)]">
-                      {notification.message}
-                    </p>
-                    <p className="mt-1 text-xs text-[var(--muted)]">
-                      {new Date(notification.createdAt).toLocaleString("ja-JP")}
-                    </p>
-                  </div>
-                  {notification.eventId && (
-                    <Link
-                      href={`/events/${notification.eventId}`}
-                      aria-label="イベントを見る"
-                      className="grid h-9 w-9 place-items-center rounded-full bg-orange-100 text-[var(--accent)]"
-                    >
-                      <span className="material-symbols-rounded">chevron_right</span>
-                    </Link>
-                  )}
+                <li key={notification.id}>
+                  <Link
+                    href={`/notifications/${notification.id}`}
+                    className="flex items-start gap-3 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm transition hover:border-orange-200"
+                  >
+                    <div className="grid h-11 w-11 place-items-center rounded-2xl bg-orange-100 text-[var(--accent)]">
+                      <span className="material-symbols-rounded">
+                        {notificationTypeIcon[notification.type] ?? "notifications"}
+                      </span>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-semibold text-[var(--foreground)]">
+                          {notification.title}
+                        </p>
+                        {!notification.readAt && (
+                          <span className="h-2 w-2 rounded-full bg-[var(--accent)]" aria-label="未読" />
+                        )}
+                      </div>
+                      <p className="mt-1 line-clamp-2 text-xs text-[var(--muted)]">
+                        {notification.body}
+                      </p>
+                      <p className="mt-2 text-[11px] text-[var(--muted)]">
+                        {new Date(notification.createdAt).toLocaleString("ja-JP")}
+                      </p>
+                    </div>
+                    <span className="material-symbols-rounded text-[var(--muted)]">chevron_right</span>
+                  </Link>
                 </li>
               ))}
             </ul>

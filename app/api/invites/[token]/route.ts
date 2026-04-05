@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { syncApprovedEventFriendships } from "@/lib/event-friendships";
 
 export async function GET(
   _request: Request,
@@ -59,6 +60,8 @@ export async function POST(
       role: "guest",
     },
   });
+
+  await syncApprovedEventFriendships(invite.eventId);
 
   return NextResponse.json({ ok: true });
 }

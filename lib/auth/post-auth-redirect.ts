@@ -10,9 +10,9 @@ export const decidePostAuthRedirect = ({
   hasSessionUserId,
   profileRequestOk,
   completionRate = 0,
-}: RedirectDecisionInput): "/onboarding" | "/profile/setup" | "/" => {
+}: RedirectDecisionInput): "/login" | "/profile/setup" | "/" => {
   if (!hasSessionUserId) {
-    return "/onboarding";
+    return "/login";
   }
 
   if (!profileRequestOk) {

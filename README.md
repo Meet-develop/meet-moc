@@ -1,98 +1,156 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# meet-moc
 
-## Getting Started
+飲み会・ごはん会などのイベント作成、参加、招待、通知を行う Next.js アプリです。
 
-First, run the development server:
+## 技術スタック
+
+- Next.js (App Router)
+- Prisma
+- PostgreSQL
+- Supabase (Auth / Storage)
+- Docker Compose
+
+## 前提環境
+
+- Docker / Docker Compose
+- Node.js 20 系推奨
+
+## クイックスタート（Docker ローカルDB）
+
+1. リポジトリ直下に `.env` を作成（このリポジトリには `.env.example` はありません）。
+2. 最低限、以下を設定します。
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+NEXT_PUBLIC_SUPABASE_URL="https://<YOUR_PROJECT_REF>.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="<YOUR_SUPABASE_ANON_KEY>"
+GOOGLE_PLACES_API_KEY="<YOUR_GOOGLE_PLACES_API_KEY>"
+APP_ORIGIN="http://localhost:3000"
+
+# Docker ローカルDBを使う場合は DATABASE_URL をコメントアウトのままにする
+# DATABASE_URL="postgresql://postgres:<YOUR_SUPABASE_DB_PASSWORD>@db.<YOUR_PROJECT_REF>.supabase.co:5432/postgres?sslmode=require&pgbouncer=true"
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
-
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
-
-## Docker (PostgreSQL)
-
-This project can run entirely in Docker with a PostgreSQL database.
+3. 起動します。
 
 ```bash
 docker compose up --build
 ```
 
-- App: http://localhost:3000
-- Postgres: localhost:5432 (db: meet_moc, user: postgres, password: postgres)
+4. アクセス先
 
-To stop and remove containers:
+- App: http://localhost:3000
+- Postgres: localhost:5432（db: meet_moc, user: postgres, password: postgres）
+
+停止:
 
 ```bash
 docker compose down
 ```
 
-## Environment Variables
+## DB切り替え（Docker PostgreSQL <-> Supabase PostgreSQL）
 
-Copy `.env.example` to `.env` and set the following:
+`docker-compose.yml` では次の設定になっています。
 
-- `NEXT_PUBLIC_SUPABASE_URL`
-- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-- `GOOGLE_PLACES_API_KEY`
+```yml
+DATABASE_URL: "${DATABASE_URL:-postgresql://postgres:postgres@db:5432/meet_moc}"
+```
 
-## Supabase Auth Callback Setup
+- `.env` で `DATABASE_URL` が未設定（コメントアウト）の場合:
+	Docker ローカルDB（`db`）を利用
+- `.env` で `DATABASE_URL` を設定した場合:
+	Supabase PostgreSQL を利用
 
-This app routes auth callbacks to `/auth/callback` and then decides whether to move the user to profile setup or the main feed.
+## Supabase セットアップ（詳細）
 
-Configure these in Supabase Dashboard:
+以下は、Supabase を新規に用意してこのアプリを動かすまでの手順です。
 
-- Authentication -> URL Configuration -> Site URL: `http://localhost:3000`
-- Authentication -> URL Configuration -> Additional Redirect URLs: `http://localhost:3000/auth/callback`
+### 1. プロジェクト作成
 
-## Supabase RLS (profiles)
+1. Supabase で新規プロジェクトを作成
+2. Project URL と anon key を控える
+3. Database password を控える
 
-Use SQL in `supabase/profiles_rls.sql` in Supabase SQL Editor to enable row-level security for `public.profiles`.
+### 2. .env 設定
 
-Place search results are cached in the `place_cache` table to reduce API usage.
+`.env` に以下を設定します。
 
-## Prisma (Schema + Seed)
+```bash
+NEXT_PUBLIC_SUPABASE_URL="https://<YOUR_PROJECT_REF>.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="<YOUR_SUPABASE_ANON_KEY>"
+GOOGLE_PLACES_API_KEY="<YOUR_GOOGLE_PLACES_API_KEY>"
+APP_ORIGIN="http://localhost:3000"
 
-Prisma is set up for type-safe DB access. The database schema is defined in
-`prisma/schema.prisma` and applied via Prisma migrations.
+# Supabase DB を使う場合のみ有効化
+DATABASE_URL="postgresql://postgres:<YOUR_SUPABASE_DB_PASSWORD>@db.<YOUR_PROJECT_REF>.supabase.co:5432/postgres?sslmode=require&pgbouncer=true"
 
-Apply migrations, generate the Prisma client, and seed data inside the app container:
+# LINE 通知を使う場合のみ設定
+# LINE_MESSAGING_CHANNEL_ACCESS_TOKEN="<YOUR_LINE_CHANNEL_ACCESS_TOKEN>"
+```
+
+### 3. Authentication 設定
+
+Supabase Dashboard で以下を設定します。
+
+- Authentication -> URL Configuration -> Site URL
+	- `http://localhost:3000`
+- Authentication -> URL Configuration -> Additional Redirect URLs
+	- `http://localhost:3000/auth/callback`
+
+### 4. DB スキーマ適用（Prisma）
+
+`DATABASE_URL` を Supabase に向けた状態で、マイグレーションを適用します。
 
 ```bash
 docker compose exec app npm run db:migrate
-docker compose exec app npx prisma generate
+docker compose exec app npm run db:generate
 docker compose exec app npm run db:seed
 ```
 
-## Key Screens
+補足:
 
-- `/onboarding`: Supabase login (email/password for test)
-- `/profile/setup`: profile details
-- `/events/new`: create event
-- `/events/[id]`: event detail
-- `/events/[id]/manage`: owner actions
-- `/notifications`: notifications
+- Prisma スキーマ変更後は `db:seed` 前に `db:generate` を実行してください。
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### 5. RLS 設定（profiles）
 
-## Learn More
+Supabase SQL Editor で [supabase/profiles_rls.sql](supabase/profiles_rls.sql) を実行してください。
 
-To learn more about Next.js, take a look at the following resources:
+### 6. Storage 設定（ユーザーアイコン）
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Supabase SQL Editor で [supabase/storage_avatars.sql](supabase/storage_avatars.sql) を実行してください。
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+この SQL で次を設定します。
 
-## Deploy on Vercel
+- `avatars` バケット作成（存在時は更新）
+- 公開読み取り
+- 認証ユーザーが `auth.uid()/...` 配下のみ書き込み・更新・削除
+- バケット上限サイズ 100KB
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+アプリ側の挙動:
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- 画像アップロード前にクライアント側で自動圧縮
+- 100KB 以下になるまで JPEG 品質調整 + リサイズ
+- 保存先バケットは `avatars`
+
+## Prisma 操作コマンド
+
+```bash
+docker compose exec app npm run db:migrate
+docker compose exec app npm run db:generate
+docker compose exec app npm run db:seed
+docker compose exec app npm run db:studio
+```
+
+## 主な画面
+
+- `/login`: ログイン
+- `/signup`: 新規登録
+- `/profile/setup`: プロフィール設定
+- `/events/new`: イベント作成
+- `/events/[id]`: イベント詳細
+- `/events/[id]/manage`: オーナー管理
+- `/notifications`: 通知一覧
+
+## 補足
+
+- Place 検索結果は `place_cache` テーブルにキャッシュされます。
+- LINE 通知を有効化する場合は、LINE Messaging API のチャネルアクセストークンを `.env` に設定してください。

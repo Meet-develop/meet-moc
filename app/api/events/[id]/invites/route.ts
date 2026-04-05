@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { createAppNotification, createAppNotifications } from "@/lib/notification-delivery";
 
 export async function POST(
   request: Request,
@@ -39,7 +40,10 @@ export async function POST(
 
   const actorCanInvite =
     body.actorId === event.ownerId ||
-    event.participants.some((participant) => participant.userId === body.actorId);
+    event.participants.some(
+      (participant) =>
+        participant.userId === body.actorId && participant.status === "approved"
+    );
   if (!actorCanInvite) {
     return NextResponse.json(
       { message: "Only participants can create invites" },
@@ -108,14 +112,37 @@ export async function POST(
     (event.visibility === "private" && body.actorId !== event.ownerId) ||
     (event.status === "confirmed" && body.actorId !== event.ownerId);
 
-  if (requestMode && event.status === "confirmed" && body.actorId !== event.ownerId) {
-    await prisma.notification.create({
-      data: {
-        userId: event.ownerId,
-        type: "join_requested",
-        message: `${actor.displayName}さんが ${targetIds.length} 名分の招待許可を申請しました。`,
-        eventId: event.id,
-      },
+  if (requestMode) {
+    await Promise.all(
+      targetIds.map((inviteeId) =>
+        (prisma as any).eventInviteRequest.upsert({
+          where: {
+            eventId_requesterId_inviteeId: {
+              eventId: event.id,
+              requesterId: body.actorId as string,
+              inviteeId,
+            },
+          },
+          update: {
+            status: "pending",
+          },
+          create: {
+            eventId: event.id,
+            requesterId: body.actorId as string,
+            inviteeId,
+            status: "pending",
+          },
+        })
+      )
+    );
+
+    await createAppNotification({
+      userId: event.ownerId,
+      type: "join_requested",
+      title: "招待申請のお知らせ",
+      body: `${actor.displayName}さんが ${targetIds.length} 名分の招待を申請しました。`,
+      message: `${actor.displayName}さんが ${targetIds.length} 名分の招待を申請しました。`,
+      eventId: event.id,
     });
 
     return NextResponse.json({
@@ -134,28 +161,19 @@ export async function POST(
     })),
   });
 
-  if (requestMode) {
-    await prisma.notification.create({
-      data: {
-        userId: event.ownerId,
-        type: "join_requested",
-        message: `${actor.displayName}さんが ${targetIds.length} 名分の招待を申請しました。`,
-        eventId: event.id,
-      },
-    });
-  } else {
-    await prisma.notification.createMany({
-      data: targetIds.map((friendId) => ({
-        userId: friendId,
-        type: "invite_received" as const,
-        message: `${actor.displayName}さんから「${event.purpose}」の招待が届きました。`,
-        eventId: event.id,
-      })),
-    });
-  }
+  await createAppNotifications(
+    targetIds.map((friendId) => ({
+      userId: friendId,
+      type: "invite_received" as const,
+      title: "イベント招待",
+      body: `${actor.displayName}さんから「${event.purpose}」の招待が届きました。`,
+      message: `${actor.displayName}さんから「${event.purpose}」の招待が届きました。`,
+      eventId: event.id,
+    }))
+  );
 
   return NextResponse.json({
     created: targetIds.length,
-    mode: requestMode ? "request" : "invite",
+    mode: "invite",
   });
 }

@@ -3,9 +3,9 @@ import { prisma } from "@/lib/prisma";
 
 export async function POST(
   request: Request,
-  { params: _params }: { params: Promise<{ id: string }> }
+  { params }: { params: Promise<{ id: string }> }
 ) {
-  await _params;
+  const { id } = await params;
   const body = (await request.json()) as {
     userId?: string;
     candidateId?: string;
@@ -16,6 +16,33 @@ export async function POST(
     return NextResponse.json(
       { message: "userId and candidateId are required" },
       { status: 400 }
+    );
+  }
+
+  const [candidate, participant] = await Promise.all([
+    prisma.eventTimeCandidate.findUnique({
+      where: { id: body.candidateId },
+      select: { eventId: true },
+    }),
+    prisma.eventParticipant.findUnique({
+      where: {
+        eventId_userId: {
+          eventId: id,
+          userId: body.userId,
+        },
+      },
+      select: { status: true },
+    }),
+  ]);
+
+  if (!candidate || candidate.eventId !== id) {
+    return NextResponse.json({ message: "Candidate not found" }, { status: 404 });
+  }
+
+  if (!participant || participant.status !== "approved") {
+    return NextResponse.json(
+      { message: "Only approved participants can vote" },
+      { status: 403 }
     );
   }
 

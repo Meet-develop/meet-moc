@@ -15,21 +15,12 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: "Missing userId" }, { status: 400 });
   }
 
-  const targetAreas = ["米子", "松江", "出雲"];
-
-  let profile = await prisma.profile.findUnique({ where: { userId } });
+  const profile = await prisma.profile.findUnique({ where: { userId }, select: { userId: true } });
   if (!profile) {
-    profile = await prisma.profile.create({
-      data: {
-        userId,
-        displayName: `ユーザー${userId.slice(0, 4)}`,
-        gender: "unspecified",
-        favoriteAreas: eventArea ? [eventArea] : [],
-      },
-    });
+    return NextResponse.json([]);
   }
 
-  let friends = await prisma.friendship.findMany({
+  const friends = await prisma.friendship.findMany({
     where: { userId, status: "accepted" },
     select: {
       friend: {
@@ -48,42 +39,6 @@ export async function GET(request: Request) {
     select: { favoriteUserId: true },
   });
   const favoriteUserIds = new Set(favoriteLinks.map((favorite) => favorite.favoriteUserId));
-
-  if (friends.length === 0) {
-    const candidates = await prisma.profile.findMany({
-      where: {
-        userId: { not: userId },
-        favoriteAreas: { hasSome: targetAreas },
-      },
-      orderBy: [{ createdAt: "asc" }],
-      take: 9,
-      select: { userId: true },
-    });
-
-    if (candidates.length > 0) {
-      await prisma.friendship.createMany({
-        data: candidates.flatMap((candidate) => [
-          { userId, friendId: candidate.userId, status: "accepted" as const },
-          { userId: candidate.userId, friendId: userId, status: "accepted" as const },
-        ]),
-        skipDuplicates: true,
-      });
-
-      friends = await prisma.friendship.findMany({
-        where: { userId, status: "accepted" },
-        select: {
-          friend: {
-            select: {
-              userId: true,
-              displayName: true,
-              avatarIcon: true,
-              favoriteAreas: true,
-            },
-          },
-        },
-      });
-    }
-  }
 
   const normalizedEventArea = normalizeArea(eventArea);
   const sortedFriends = friends

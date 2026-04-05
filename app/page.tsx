@@ -127,23 +127,29 @@ export default function HomePage() {
     },
   ] as const;
 
+  const visibleSections = userId
+    ? sections
+    : sections.filter((section) => section.key === "public");
+
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
         <div className="mx-auto flex max-w-md items-center justify-between gap-3 px-4 py-4 sm:max-w-6xl sm:px-6">
           <h1 className="text-lg font-semibold">イベントフィード</h1>
-          <Link
-            href="/events/history"
-            aria-label="参加履歴を見る"
-            className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
-          >
-            <span className="material-symbols-rounded">history</span>
-          </Link>
+          {userId && (
+            <Link
+              href="/events/history"
+              aria-label="参加履歴を見る"
+              className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+            >
+              <span className="material-symbols-rounded">history</span>
+            </Link>
+          )}
         </div>
       </header>
 
       <main className="mx-auto max-w-md px-4 py-8 sm:max-w-6xl sm:px-6 sm:py-10">
-        {sections.map((section) => (
+        {visibleSections.map((section) => (
           <section key={section.key} className="mb-8">
             <div className="mb-3 flex items-center justify-between">
               <div>

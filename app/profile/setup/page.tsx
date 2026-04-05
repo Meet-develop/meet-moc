@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import type { Dispatch, SetStateAction } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type { ChangeEvent, Dispatch, SetStateAction } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { getAvatarToneClass, isImageAvatar } from "@/components/ui/avatar-name";
 
 type WeekdayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 type Slot = { daytime: boolean; night: boolean };
@@ -44,6 +45,28 @@ type ProfileResponse = {
   stats?: ProfileStats;
 };
 
+type ProfileFormSnapshot = {
+  displayName: string;
+  avatarIcon: string;
+  gender: string;
+  birthDate: string;
+  playFrequency: string;
+  drinkFrequency: string;
+  budgetOption: BudgetOptionId;
+  ngFoods: string[];
+  favoriteAreas: string[];
+  favoritePlaces: string[];
+  weekdaySlots: WeekdaySlots;
+  frequentPlaces: Array<{
+    placeId: string;
+    name: string;
+    address: string;
+    lat: number;
+    lng: number;
+    photoUrl?: string;
+  }>;
+};
+
 const PROFILE_COMPLETION_THRESHOLD = 100;
 
 const genderOptions = [
@@ -67,7 +90,11 @@ const drinkFrequencyOptions = [
   { value: "often", label: "よく飲む" },
 ];
 
-const avatarOptions = ["😀", "😎", "🥳", "🦊", "🐼", "🐧", "🦄", "🍀", "🎧", "🎮", "📚", "🏕️"];
+const AVATAR_BUCKET_NAME = "avatars";
+const AVATAR_MAX_UPLOAD_BYTES = 100 * 1024;
+const AVATAR_MAX_DIMENSION = 720;
+const NG_FOOD_NONE_OPTION = "なし";
+const UNSAVED_FIELD_NOTICE = "更新ボタンを押さないと更新されません。";
 
 const budgetOptions = [
   { id: "upto2000", label: "～2000円", min: 0, max: 2000 },
@@ -98,6 +125,80 @@ const defaultStats: ProfileStats = {
   friendCount: 0,
   completionRate: 0,
 };
+
+const defaultNgFoodOptions = [
+  NG_FOOD_NONE_OPTION,
+  "辛いもの",
+  "甲殻類",
+  "乳製品",
+  "パクチー",
+  "生魚",
+  "香草系",
+  "揚げ物",
+  "炭酸",
+] as const;
+
+const normalizeStringArray = (values: string[]) =>
+  [...new Set(values.map((value) => value.trim()).filter(Boolean))].sort((a, b) =>
+    a.localeCompare(b, "ja")
+  );
+
+const normalizeNgFoods = (values?: string[] | null) => {
+  const cleaned = normalizeStringArray(values ?? []);
+  if (cleaned.length === 0) {
+    return [NG_FOOD_NONE_OPTION];
+  }
+
+  const withoutNone = cleaned.filter((value) => value !== NG_FOOD_NONE_OPTION);
+  return withoutNone.length > 0 ? withoutNone : [NG_FOOD_NONE_OPTION];
+};
+
+const toComparableWeekdaySlots = (slots: WeekdaySlots): WeekdaySlots => ({
+  mon: { ...slots.mon },
+  tue: { ...slots.tue },
+  wed: { ...slots.wed },
+  thu: { ...slots.thu },
+  fri: { ...slots.fri },
+  sat: { ...slots.sat },
+  sun: { ...slots.sun },
+});
+
+const createProfileSnapshot = (payload: {
+  displayName: string;
+  avatarIcon: string;
+  gender: string;
+  birthDate: string;
+  playFrequency: string;
+  drinkFrequency: string;
+  budgetOption: BudgetOptionId;
+  ngFoods: string[];
+  favoriteAreas: string[];
+  favoritePlaces: string[];
+  weekdaySlots: WeekdaySlots;
+  frequentPlaces: PlaceResult[];
+}): ProfileFormSnapshot => ({
+  displayName: payload.displayName.trim(),
+  avatarIcon: payload.avatarIcon,
+  gender: payload.gender,
+  birthDate: payload.birthDate,
+  playFrequency: payload.playFrequency,
+  drinkFrequency: payload.drinkFrequency,
+  budgetOption: payload.budgetOption,
+  ngFoods: normalizeNgFoods(payload.ngFoods),
+  favoriteAreas: normalizeStringArray(payload.favoriteAreas),
+  favoritePlaces: normalizeStringArray(payload.favoritePlaces),
+  weekdaySlots: toComparableWeekdaySlots(payload.weekdaySlots),
+  frequentPlaces: payload.frequentPlaces
+    .map((place) => ({
+      placeId: place.placeId,
+      name: place.name,
+      address: place.address,
+      lat: place.lat,
+      lng: place.lng,
+      photoUrl: place.photoUrl,
+    }))
+    .sort((a, b) => a.placeId.localeCompare(b.placeId)),
+});
 
 const defaultWeekdaySlots: WeekdaySlots = {
   mon: { daytime: false, night: false },
@@ -167,17 +268,118 @@ const toFrequentPlaces = (availability: unknown): PlaceResult[] => {
     .slice(0, 3);
 };
 
+const pickMetadataString = (metadata: Record<string, unknown>, keys: string[]) => {
+  for (const key of keys) {
+    const value = metadata[key];
+    if (typeof value === "string" && value.trim().length > 0) {
+      return value.trim();
+    }
+  }
+  return undefined;
+};
+
+const loadImageElement = (file: File) =>
+  new Promise<HTMLImageElement>((resolve, reject) => {
+    const image = new window.Image();
+    const objectUrl = URL.createObjectURL(file);
+
+    image.onload = () => {
+      URL.revokeObjectURL(objectUrl);
+      resolve(image);
+    };
+
+    image.onerror = () => {
+      URL.revokeObjectURL(objectUrl);
+      reject(new Error("Failed to load image"));
+    };
+
+    image.src = objectUrl;
+  });
+
+const canvasToBlob = (canvas: HTMLCanvasElement, quality: number) =>
+  new Promise<Blob>((resolve, reject) => {
+    canvas.toBlob(
+      (blob) => {
+        if (!blob) {
+          reject(new Error("Failed to convert image"));
+          return;
+        }
+        resolve(blob);
+      },
+      "image/jpeg",
+      quality
+    );
+  });
+
+const toAvatarFileName = (name: string) => {
+  const withoutExtension = name.replace(/\.[^/.]+$/u, "").trim();
+  return `${withoutExtension || "avatar"}.jpg`;
+};
+
+const compressAvatarImage = async (file: File) => {
+  const image = await loadImageElement(file);
+  const canvas = document.createElement("canvas");
+  const context = canvas.getContext("2d");
+  if (!context) {
+    throw new Error("Canvas is not available");
+  }
+
+  const longestEdge = Math.max(image.naturalWidth, image.naturalHeight, 1);
+  const initialScale =
+    longestEdge > AVATAR_MAX_DIMENSION ? AVATAR_MAX_DIMENSION / longestEdge : 1;
+
+  let width = Math.max(1, Math.round(image.naturalWidth * initialScale));
+  let height = Math.max(1, Math.round(image.naturalHeight * initialScale));
+  let bestBlob: Blob | null = null;
+
+  const qualitySteps = [0.92, 0.86, 0.8, 0.74, 0.68, 0.62, 0.56, 0.5, 0.44];
+
+  for (let resizeAttempt = 0; resizeAttempt < 7; resizeAttempt += 1) {
+    canvas.width = width;
+    canvas.height = height;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = "#ffffff";
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+
+    for (const quality of qualitySteps) {
+      const blob = await canvasToBlob(canvas, quality);
+      if (!bestBlob || blob.size < bestBlob.size) {
+        bestBlob = blob;
+      }
+
+      if (blob.size <= AVATAR_MAX_UPLOAD_BYTES) {
+        return new File([blob], toAvatarFileName(file.name), {
+          type: "image/jpeg",
+        });
+      }
+    }
+
+    width = Math.max(1, Math.round(width * 0.85));
+    height = Math.max(1, Math.round(height * 0.85));
+  }
+
+  if (bestBlob && bestBlob.size <= AVATAR_MAX_UPLOAD_BYTES) {
+    return new File([bestBlob], toAvatarFileName(file.name), {
+      type: "image/jpeg",
+    });
+  }
+
+  throw new Error("Could not compress avatar image under 100KB");
+};
+
 export default function ProfileSetupPage() {
   const router = useRouter();
+  const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState("");
-  const [avatarIcon, setAvatarIcon] = useState(avatarOptions[0]);
+  const [avatarIcon, setAvatarIcon] = useState("");
   const [gender, setGender] = useState("unspecified");
   const [birthDate, setBirthDate] = useState("");
   const [playFrequency, setPlayFrequency] = useState("");
   const [drinkFrequency, setDrinkFrequency] = useState("");
   const [budgetOption, setBudgetOption] = useState<BudgetOptionId>("3000to5000");
-  const [ngFoods, setNgFoods] = useState<string[]>([]);
+  const [ngFoods, setNgFoods] = useState<string[]>([NG_FOOD_NONE_OPTION]);
   const [favoriteAreas, setFavoriteAreas] = useState<string[]>([]);
   const [favoritePlaces, setFavoritePlaces] = useState<string[]>([]);
   const [weekdaySlots, setWeekdaySlots] = useState<WeekdaySlots>(defaultWeekdaySlots);
@@ -194,6 +396,8 @@ export default function ProfileSetupPage() {
   const [areaMessage, setAreaMessage] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [stats, setStats] = useState<ProfileStats>(defaultStats);
+  const [avatarUploadMessage, setAvatarUploadMessage] = useState<string | null>(null);
+  const [initialSnapshot, setInitialSnapshot] = useState<ProfileFormSnapshot | null>(null);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -201,29 +405,105 @@ export default function ProfileSetupPage() {
       const currentUserId = data.session?.user?.id ?? null;
       setUserId(currentUserId);
 
+      const metadata = data.session?.user?.user_metadata as Record<string, unknown> | undefined;
+      const metadataDisplayName = metadata
+        ? pickMetadataString(metadata, ["display_name", "name", "full_name"])
+        : undefined;
+      const metadataAvatar = metadata
+        ? pickMetadataString(metadata, ["avatar_url", "picture", "profile_image"])
+        : undefined;
+      const metadataBirthDate = metadata
+        ? pickMetadataString(metadata, ["birthdate", "birthday"])
+        : undefined;
+
+      const normalizedMetadataBirthDate =
+        metadataBirthDate && /^\d{4}-\d{2}-\d{2}$/.test(metadataBirthDate)
+          ? metadataBirthDate
+          : undefined;
+
       if (currentUserId) {
-        const response = await fetch(`/api/profiles/${currentUserId}`);
+        const response = await fetch(
+          `/api/profiles/${currentUserId}?viewerId=${encodeURIComponent(currentUserId)}`
+        );
         if (response.ok) {
           const profile = (await response.json()) as ProfileResponse;
-          const completionRate = profile.stats?.completionRate ?? 0;
-          if (completionRate >= PROFILE_COMPLETION_THRESHOLD) {
-            router.replace("/");
-            return;
+
+          const nextDisplayName = profile.displayName?.trim() || metadataDisplayName || "";
+          const nextAvatarIcon = profile.avatarIcon || metadataAvatar || "";
+          const nextGender = profile.gender ?? "unspecified";
+          const nextBirthDate = profile.birthDate
+            ? profile.birthDate.slice(0, 10)
+            : normalizedMetadataBirthDate ?? "";
+          const nextPlayFrequency = profile.playFrequency ?? "";
+          const nextDrinkFrequency = profile.drinkFrequency ?? "";
+          const nextBudgetOption = detectBudgetOption(profile.budgetMin, profile.budgetMax);
+          const nextNgFoods = normalizeNgFoods(profile.ngFoods ?? []);
+          const nextFavoriteAreas = profile.favoriteAreas ?? [];
+          const nextFavoritePlaces = profile.favoritePlaces ?? [];
+          const nextWeekdaySlots = toWeekdaySlots(profile.availability);
+          const nextFrequentPlaces = toFrequentPlaces(profile.availability);
+
+          setDisplayName(nextDisplayName);
+          setAvatarIcon(nextAvatarIcon);
+          setGender(nextGender);
+          setBirthDate(nextBirthDate);
+          setPlayFrequency(nextPlayFrequency);
+          setDrinkFrequency(nextDrinkFrequency);
+          setBudgetOption(nextBudgetOption);
+          setNgFoods(nextNgFoods);
+          setFavoriteAreas(nextFavoriteAreas);
+          setFavoritePlaces(nextFavoritePlaces);
+          setWeekdaySlots(nextWeekdaySlots);
+          setFrequentPlaces(nextFrequentPlaces);
+          setStats(profile.stats ?? defaultStats);
+
+          setInitialSnapshot(
+            createProfileSnapshot({
+              displayName: nextDisplayName,
+              avatarIcon: nextAvatarIcon,
+              gender: nextGender,
+              birthDate: nextBirthDate,
+              playFrequency: nextPlayFrequency,
+              drinkFrequency: nextDrinkFrequency,
+              budgetOption: nextBudgetOption,
+              ngFoods: nextNgFoods,
+              favoriteAreas: nextFavoriteAreas,
+              favoritePlaces: nextFavoritePlaces,
+              weekdaySlots: nextWeekdaySlots,
+              frequentPlaces: nextFrequentPlaces,
+            })
+          );
+        } else {
+          const nextDisplayName = metadataDisplayName ?? "";
+          const nextAvatarIcon = metadataAvatar ?? "";
+          const nextBirthDate = normalizedMetadataBirthDate ?? "";
+
+          if (metadataDisplayName) {
+            setDisplayName(metadataDisplayName);
+          }
+          if (metadataAvatar) {
+            setAvatarIcon(metadataAvatar);
+          }
+          if (normalizedMetadataBirthDate) {
+            setBirthDate(normalizedMetadataBirthDate);
           }
 
-          setDisplayName(profile.displayName ?? "");
-          setAvatarIcon(profile.avatarIcon ?? avatarOptions[0]);
-          setGender(profile.gender ?? "unspecified");
-          setBirthDate(profile.birthDate ? profile.birthDate.slice(0, 10) : "");
-          setPlayFrequency(profile.playFrequency ?? "");
-          setDrinkFrequency(profile.drinkFrequency ?? "");
-          setBudgetOption(detectBudgetOption(profile.budgetMin, profile.budgetMax));
-          setNgFoods(profile.ngFoods ?? []);
-          setFavoriteAreas(profile.favoriteAreas ?? []);
-          setFavoritePlaces(profile.favoritePlaces ?? []);
-          setWeekdaySlots(toWeekdaySlots(profile.availability));
-          setFrequentPlaces(toFrequentPlaces(profile.availability));
-          setStats(profile.stats ?? defaultStats);
+          setInitialSnapshot(
+            createProfileSnapshot({
+              displayName: nextDisplayName,
+              avatarIcon: nextAvatarIcon,
+              gender: "unspecified",
+              birthDate: nextBirthDate,
+              playFrequency: "",
+              drinkFrequency: "",
+              budgetOption: "3000to5000",
+              ngFoods: [NG_FOOD_NONE_OPTION],
+              favoriteAreas: [],
+              favoritePlaces: [],
+              weekdaySlots: defaultWeekdaySlots,
+              frequentPlaces: [],
+            })
+          );
         }
       }
     };
@@ -231,10 +511,14 @@ export default function ProfileSetupPage() {
     loadUser();
   }, [router]);
 
+  const avatarToneClass = useMemo(
+    () => getAvatarToneClass(displayName.trim() || userId || "user"),
+    [displayName, userId]
+  );
+
   const completionRate = useMemo(() => {
     const localChecks = [
       displayName.trim().length > 0,
-      Boolean(avatarIcon),
       Boolean(birthDate),
       Boolean(playFrequency),
       Boolean(drinkFrequency),
@@ -247,7 +531,6 @@ export default function ProfileSetupPage() {
     const done = localChecks.filter(Boolean).length;
     return Math.round((done / localChecks.length) * 100);
   }, [
-    avatarIcon,
     birthDate,
     displayName,
     drinkFrequency,
@@ -261,6 +544,24 @@ export default function ProfileSetupPage() {
 
   const toggleItem = (setter: Dispatch<SetStateAction<string[]>>, value: string) => {
     setter((prev) => (prev.includes(value) ? prev.filter((item) => item !== value) : [...prev, value]));
+  };
+
+  const toggleNgFood = (value: string) => {
+    setNgFoods((prev) => {
+      const normalizedPrev = normalizeNgFoods(prev);
+
+      if (value === NG_FOOD_NONE_OPTION) {
+        return normalizedPrev.includes(NG_FOOD_NONE_OPTION) ? [NG_FOOD_NONE_OPTION] : [NG_FOOD_NONE_OPTION];
+      }
+
+      const withoutNone = normalizedPrev.filter((item) => item !== NG_FOOD_NONE_OPTION);
+      if (withoutNone.includes(value)) {
+        const next = withoutNone.filter((item) => item !== value);
+        return next.length > 0 ? next : [NG_FOOD_NONE_OPTION];
+      }
+
+      return [...withoutNone, value];
+    });
   };
 
   const toggleSlot = (day: WeekdayKey, key: keyof Slot) => {
@@ -397,8 +698,12 @@ export default function ProfileSetupPage() {
     });
 
     if (response.ok) {
-      setMessage("保存しました。");
-      const refreshed = await fetch(`/api/profiles/${userId}`);
+      setMessage("更新しました。");
+      setAvatarUploadMessage(null);
+      setInitialSnapshot(currentSnapshot);
+      const refreshed = await fetch(
+        `/api/profiles/${userId}?viewerId=${encodeURIComponent(userId)}`
+      );
       if (refreshed.ok) {
         const profile = (await refreshed.json()) as ProfileResponse;
         setStats(profile.stats ?? defaultStats);
@@ -409,19 +714,153 @@ export default function ProfileSetupPage() {
               profile_completed: true,
             },
           });
-          router.replace("/");
-          return;
         }
       }
     } else {
-      setMessage("保存に失敗しました。");
+      setMessage("更新に失敗しました。");
     }
+  };
+
+  const handleAvatarImagePick = async (
+    event: ChangeEvent<HTMLInputElement>
+  ) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (!userId) {
+      setAvatarUploadMessage("ログイン後に画像を設定してください。");
+      return;
+    }
+
+    if (!file.type.startsWith("image/")) {
+      setAvatarUploadMessage("画像ファイルのみアップロードできます。");
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) {
+      setAvatarUploadMessage("画像サイズは5MB以下にしてください。");
+      return;
+    }
+
+    let uploadFile = file;
+    setAvatarUploadMessage("画像を圧縮中...");
+    try {
+      uploadFile = await compressAvatarImage(file);
+    } catch {
+      setAvatarUploadMessage("画像を100KB以下に圧縮できませんでした。別の画像をお試しください。");
+      return;
+    }
+
+    setAvatarUploadMessage("画像をアップロード中...");
+
+    const path = `${userId}/${Date.now()}.jpg`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(AVATAR_BUCKET_NAME)
+      .upload(path, uploadFile, {
+        cacheControl: "3600",
+        contentType: "image/jpeg",
+        upsert: true,
+      });
+
+    if (uploadError) {
+      setAvatarUploadMessage("画像アップロードに失敗しました。Storage設定を確認してください。");
+      return;
+    }
+
+    const { data } = supabase.storage
+      .from(AVATAR_BUCKET_NAME)
+      .getPublicUrl(path);
+
+    setAvatarIcon(data.publicUrl);
+    setAvatarUploadMessage("画像を100KB以下に最適化して設定しました。更新するとプロフィールに反映されます。");
   };
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push("/onboarding");
+    router.push("/login");
   };
+
+  const currentSnapshot = useMemo(
+    () =>
+      createProfileSnapshot({
+        displayName,
+        avatarIcon,
+        gender,
+        birthDate,
+        playFrequency,
+        drinkFrequency,
+        budgetOption,
+        ngFoods,
+        favoriteAreas,
+        favoritePlaces,
+        weekdaySlots,
+        frequentPlaces,
+      }),
+    [
+      avatarIcon,
+      birthDate,
+      budgetOption,
+      displayName,
+      drinkFrequency,
+      favoriteAreas,
+      favoritePlaces,
+      frequentPlaces,
+      gender,
+      ngFoods,
+      playFrequency,
+      weekdaySlots,
+    ]
+  );
+
+  const isProfileChanged = useMemo(() => {
+    if (!initialSnapshot) return false;
+    return JSON.stringify(currentSnapshot) !== JSON.stringify(initialSnapshot);
+  }, [currentSnapshot, initialSnapshot]);
+
+  const fieldChanges = useMemo(() => {
+    if (!initialSnapshot) {
+      return {
+        avatarIcon: false,
+        displayName: false,
+        birthDate: false,
+        gender: false,
+        playFrequency: false,
+        drinkFrequency: false,
+        budgetOption: false,
+        ngFoods: false,
+        favoriteAreas: false,
+        favoritePlaces: false,
+        frequentPlaces: false,
+        weekdaySlots: false,
+      };
+    }
+
+    return {
+      avatarIcon: currentSnapshot.avatarIcon !== initialSnapshot.avatarIcon,
+      displayName: currentSnapshot.displayName !== initialSnapshot.displayName,
+      birthDate: currentSnapshot.birthDate !== initialSnapshot.birthDate,
+      gender: currentSnapshot.gender !== initialSnapshot.gender,
+      playFrequency: currentSnapshot.playFrequency !== initialSnapshot.playFrequency,
+      drinkFrequency: currentSnapshot.drinkFrequency !== initialSnapshot.drinkFrequency,
+      budgetOption: currentSnapshot.budgetOption !== initialSnapshot.budgetOption,
+      ngFoods:
+        JSON.stringify(currentSnapshot.ngFoods) !==
+        JSON.stringify(initialSnapshot.ngFoods),
+      favoriteAreas:
+        JSON.stringify(currentSnapshot.favoriteAreas) !==
+        JSON.stringify(initialSnapshot.favoriteAreas),
+      favoritePlaces:
+        JSON.stringify(currentSnapshot.favoritePlaces) !==
+        JSON.stringify(initialSnapshot.favoritePlaces),
+      frequentPlaces:
+        JSON.stringify(currentSnapshot.frequentPlaces) !==
+        JSON.stringify(initialSnapshot.frequentPlaces),
+      weekdaySlots:
+        JSON.stringify(currentSnapshot.weekdaySlots) !==
+        JSON.stringify(initialSnapshot.weekdaySlots),
+    };
+  }, [currentSnapshot, initialSnapshot]);
 
   return (
     <div className="min-h-screen pb-4">
@@ -439,25 +878,53 @@ export default function ProfileSetupPage() {
       </header>
 
       <main className="mx-auto max-w-md px-4 py-6 sm:max-w-4xl sm:px-6">
-        {!userId && (
-          <div className="mb-5 rounded-3xl bg-white/80 p-4 text-sm text-[var(--muted)] shadow-sm">
-            プロフィールを保存するにはログインが必要です。
-            <Link href="/onboarding" className="ml-2 text-[var(--accent)]">
-              ログインへ
-            </Link>
-          </div>
-        )}
-
         <div className="pt-2">
           <div className="rounded-3xl border border-orange-100/70 p-5">
             <div className="flex flex-col items-center text-center">
-              <div className="grid h-20 w-20 place-items-center rounded-full bg-orange-100 text-4xl">
-                {avatarIcon}
+              <div className="relative">
+                <div
+                  className={`grid h-20 w-20 place-items-center overflow-hidden rounded-full text-4xl ${
+                    isImageAvatar(avatarIcon) || avatarIcon ? "bg-orange-100" : avatarToneClass
+                  }`}
+                >
+                  {isImageAvatar(avatarIcon) ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={avatarIcon}
+                      alt="プロフィール画像"
+                      className="h-full w-full object-cover"
+                    />
+                  ) : avatarIcon ? (
+                    avatarIcon
+                  ) : (
+                    <span className="material-symbols-rounded text-[2rem]">person</span>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => avatarInputRef.current?.click()}
+                  className="absolute -bottom-1 -right-1 grid h-8 w-8 place-items-center rounded-full bg-[var(--accent)] text-white shadow-md"
+                  aria-label="プロフィール画像を設定"
+                >
+                  <span className="material-symbols-rounded text-base">photo_camera</span>
+                </button>
               </div>
+              <input
+                ref={avatarInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleAvatarImagePick}
+                className="hidden"
+              />
               <p className="mt-3 text-lg font-semibold text-[var(--foreground)]">
                 {displayName || "表示名未設定"}
               </p>
             </div>
+
+            {avatarUploadMessage && (
+              <p className="mt-3 text-center text-xs text-[var(--muted)]">{avatarUploadMessage}</p>
+            )}
+            {fieldChanges.avatarIcon && <UnsavedFieldNotice />}
 
             <div className="mt-4 grid grid-cols-3 gap-2 text-center">
               <StatCell label="企画" value={stats.hostedCount} />
@@ -483,25 +950,6 @@ export default function ProfileSetupPage() {
 
           <div className="mt-5 space-y-5">
             <section className="py-4">
-              <h2 className="text-sm font-semibold">アイコン</h2>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {avatarOptions.map((option) => (
-                  <button
-                    key={option}
-                    onClick={() => setAvatarIcon(option)}
-                    className={`grid h-10 w-10 place-items-center rounded-full text-lg ${
-                      avatarIcon === option
-                        ? "bg-[var(--accent)] text-white shadow-md"
-                        : "bg-white shadow-sm"
-                    }`}
-                  >
-                    {option}
-                  </button>
-                ))}
-              </div>
-            </section>
-
-            <section className="py-4">
               <h2 className="text-sm font-semibold">基本情報</h2>
               <div className="mt-3 grid gap-3">
                 <label className="flex flex-col gap-2 text-sm">
@@ -512,6 +960,7 @@ export default function ProfileSetupPage() {
                     className="rounded-2xl bg-white px-4 py-3 shadow-sm"
                     placeholder="ニックネーム"
                   />
+                  {fieldChanges.displayName && <UnsavedFieldNotice />}
                 </label>
                 <label className="flex flex-col gap-2 text-sm">
                   生年月日
@@ -521,8 +970,10 @@ export default function ProfileSetupPage() {
                     onChange={(event) => setBirthDate(event.target.value)}
                     className="rounded-2xl bg-white px-4 py-3 shadow-sm"
                   />
+                  {fieldChanges.birthDate && <UnsavedFieldNotice />}
                 </label>
                 <ChipRow title="性別" options={genderOptions} selected={gender} onSelect={setGender} />
+                {fieldChanges.gender && <UnsavedFieldNotice />}
               </div>
             </section>
 
@@ -530,7 +981,9 @@ export default function ProfileSetupPage() {
               <h2 className="text-sm font-semibold">ライフスタイル</h2>
               <div className="mt-3 space-y-4">
                 <ChipRow title="遊ぶ頻度" options={playFrequencyOptions} selected={playFrequency} onSelect={setPlayFrequency} />
+                {fieldChanges.playFrequency && <UnsavedFieldNotice />}
                 <ChipRow title="飲む頻度" options={drinkFrequencyOptions} selected={drinkFrequency} onSelect={setDrinkFrequency} />
+                {fieldChanges.drinkFrequency && <UnsavedFieldNotice />}
               </div>
             </section>
 
@@ -551,18 +1004,29 @@ export default function ProfileSetupPage() {
                   </button>
                 ))}
               </div>
+              {fieldChanges.budgetOption && <UnsavedFieldNotice />}
             </section>
 
             <MultiSelectRow
               title="NG食材"
-              options={[...new Set(["辛いもの", "甲殻類", "乳製品", "パクチー", "生魚", "香草系", "揚げ物", "炭酸", ...ngFoods])]} 
+              options={[...new Set([...defaultNgFoodOptions, ...ngFoods])]} 
               selected={ngFoods}
-              onToggle={(value) => toggleItem(setNgFoods, value)}
+              onToggle={toggleNgFood}
               addPlaceholder="食材を追加"
               onAddOption={(value) => {
-                setNgFoods((prev) => (prev.includes(value) ? prev : [...prev, value]));
+                const normalized = value.trim();
+                if (!normalized) return;
+                setNgFoods((prev) => {
+                  if (normalized === NG_FOOD_NONE_OPTION) {
+                    return [NG_FOOD_NONE_OPTION];
+                  }
+
+                  const withoutNone = normalizeNgFoods(prev).filter((item) => item !== NG_FOOD_NONE_OPTION);
+                  return withoutNone.includes(normalized) ? withoutNone : [...withoutNone, normalized];
+                });
               }}
             />
+            {fieldChanges.ngFoods && <UnsavedFieldNotice />}
 
             <section className="py-4">
               <div className="flex items-center gap-2">
@@ -608,6 +1072,7 @@ export default function ProfileSetupPage() {
                 </div>
               )}
             </section>
+            {fieldChanges.favoriteAreas && <UnsavedFieldNotice />}
 
             <MultiSelectRow
               title="好きなお店ジャンル"
@@ -619,6 +1084,7 @@ export default function ProfileSetupPage() {
                 setFavoritePlaces((prev) => (prev.includes(value) ? prev : [...prev, value]));
               }}
             />
+            {fieldChanges.favoritePlaces && <UnsavedFieldNotice />}
 
             <section className="py-4">
               <div className="flex items-center gap-2">
@@ -666,6 +1132,7 @@ export default function ProfileSetupPage() {
                 </div>
               )}
             </section>
+            {fieldChanges.frequentPlaces && <UnsavedFieldNotice />}
 
             <section className="py-4">
               <h2 className="text-sm font-semibold">遊べる曜日</h2>
@@ -699,6 +1166,7 @@ export default function ProfileSetupPage() {
                   </div>
                 ))}
               </div>
+              {fieldChanges.weekdaySlots && <UnsavedFieldNotice />}
             </section>
           </div>
 
@@ -706,11 +1174,11 @@ export default function ProfileSetupPage() {
 
           <button
             onClick={handleSubmit}
-            disabled={!userId}
+            disabled={!userId || !isProfileChanged}
             className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3.5 text-sm font-semibold text-white shadow-lg shadow-orange-200 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <span className="material-symbols-rounded">save</span>
-            保存する
+            <span className="material-symbols-rounded">edit</span>
+            更新する
           </button>
 
           {userId && (
@@ -865,6 +1333,10 @@ export default function ProfileSetupPage() {
       )}
     </div>
   );
+}
+
+function UnsavedFieldNotice() {
+  return <p className="mt-2 text-xs font-medium text-[var(--accent)]">{UNSAVED_FIELD_NOTICE}</p>;
 }
 
 function StatCell({ label, value }: { label: string; value: number }) {

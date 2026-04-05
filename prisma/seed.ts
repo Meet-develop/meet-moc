@@ -100,7 +100,7 @@ const userDrafts = [
   {
     userId: "70000000-0000-0000-0000-000000000001",
     displayName: "ゆうと",
-    avatarIcon: "🦀",
+    avatarIcon: null,
     gender: "male" as const,
     birthDate: new Date("1994-01-12"),
     playFrequency: "high" as const,
@@ -113,7 +113,7 @@ const userDrafts = [
   {
     userId: "70000000-0000-0000-0000-000000000002",
     displayName: "ひなた",
-    avatarIcon: "🌼",
+    avatarIcon: null,
     gender: "female" as const,
     birthDate: new Date("1996-05-24"),
     playFrequency: "medium" as const,
@@ -126,7 +126,7 @@ const userDrafts = [
   {
     userId: "70000000-0000-0000-0000-000000000003",
     displayName: "れん",
-    avatarIcon: "🎣",
+    avatarIcon: null,
     gender: "male" as const,
     birthDate: new Date("1991-09-08"),
     playFrequency: "high" as const,
@@ -139,7 +139,7 @@ const userDrafts = [
   {
     userId: "70000000-0000-0000-0000-000000000004",
     displayName: "そら",
-    avatarIcon: "🏯",
+    avatarIcon: null,
     gender: "male" as const,
     birthDate: new Date("1993-03-16"),
     playFrequency: "medium" as const,
@@ -152,7 +152,7 @@ const userDrafts = [
   {
     userId: "70000000-0000-0000-0000-000000000005",
     displayName: "なつき",
-    avatarIcon: "🍃",
+    avatarIcon: null,
     gender: "female" as const,
     birthDate: new Date("1997-07-11"),
     playFrequency: "high" as const,
@@ -165,7 +165,7 @@ const userDrafts = [
   {
     userId: "70000000-0000-0000-0000-000000000006",
     displayName: "こうき",
-    avatarIcon: "🎮",
+    avatarIcon: null,
     gender: "male" as const,
     birthDate: new Date("1992-12-02"),
     playFrequency: "low" as const,
@@ -178,7 +178,7 @@ const userDrafts = [
   {
     userId: "70000000-0000-0000-0000-000000000007",
     displayName: "みなと",
-    avatarIcon: "⛩️",
+    avatarIcon: null,
     gender: "male" as const,
     birthDate: new Date("1990-10-21"),
     playFrequency: "medium" as const,
@@ -191,7 +191,7 @@ const userDrafts = [
   {
     userId: "70000000-0000-0000-0000-000000000008",
     displayName: "あおい",
-    avatarIcon: "🌊",
+    avatarIcon: null,
     gender: "female" as const,
     birthDate: new Date("1998-04-05"),
     playFrequency: "high" as const,
@@ -204,7 +204,7 @@ const userDrafts = [
   {
     userId: "70000000-0000-0000-0000-000000000009",
     displayName: "しおん",
-    avatarIcon: "🎒",
+    avatarIcon: null,
     gender: "other" as const,
     birthDate: new Date("1995-08-30"),
     playFrequency: "medium" as const,
@@ -611,18 +611,24 @@ const notifications = [
   {
     userId: users[0].userId,
     type: "join_requested" as const,
+    title: "参加申請のお知らせ",
+    body: "だいきさんがイベント参加を申請しました。",
     message: "だいきさんがイベント参加を申請しました。",
     eventId: events[0].id,
   },
   {
     userId: users[2].userId,
     type: "invite_received" as const,
+    title: "イベント招待",
+    body: "けんたさんから招待が届きました。",
     message: "けんたさんから招待が届きました。",
     eventId: events[0].id,
   },
   {
     userId: users[4].userId,
     type: "event_confirmed" as const,
+    title: "開催情報のお知らせ",
+    body: "映画鑑賞会の日時とお店が確定しました。",
     message: "映画鑑賞会の日時とお店が確定しました。",
     eventId: events[2].id,
   },

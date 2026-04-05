@@ -1,7 +1,9 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { supabase } from "@/lib/supabase/client";
 
 type NavItem = {
   href: string;
@@ -45,12 +47,74 @@ const navItems: NavItem[] = [
   },
 ];
 
-const hiddenPathPrefixes = ["/onboarding"];
+const hiddenPathPrefixes = ["/onboarding", "/login", "/signup"];
 
 export function MobileBottomNav() {
   const pathname = usePathname();
+  const [userId, setUserId] = useState<string | null>(null);
+  const [isSessionChecked, setIsSessionChecked] = useState(false);
+  const [profileCompletionRate, setProfileCompletionRate] = useState<number>(100);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadSession = async () => {
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      setUserId(data.session?.user?.id ?? null);
+      setIsSessionChecked(true);
+    };
+
+    void loadSession();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserId(session?.user?.id ?? null);
+      setIsSessionChecked(true);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId) return;
+
+    let active = true;
+
+    const loadProfile = async () => {
+      const response = await fetch(
+        `/api/profiles/${userId}?viewerId=${encodeURIComponent(userId)}`,
+        { cache: "no-store" }
+      );
+      if (!active) return;
+
+      if (!response.ok) {
+        setProfileCompletionRate(0);
+        return;
+      }
+
+      const profile = (await response.json()) as { stats?: { completionRate?: number } };
+      setProfileCompletionRate(profile.stats?.completionRate ?? 0);
+    };
+
+    void loadProfile();
+
+    return () => {
+      active = false;
+    };
+  }, [userId]);
+
+  const canCreateEvent = userId == null || profileCompletionRate >= 100;
 
   if (hiddenPathPrefixes.some((prefix) => pathname.startsWith(prefix))) {
+    return null;
+  }
+
+  if (!isSessionChecked || !userId) {
     return null;
   }
 
@@ -59,6 +123,8 @@ export function MobileBottomNav() {
       <ul className="mx-auto flex max-w-md items-end justify-between gap-1">
         {navItems.map((item) => {
           const active = item.match(pathname);
+          const isCreateItem = item.href === "/events/new";
+          const isDisabled = isCreateItem && userId != null && !canCreateEvent;
           const baseClass = item.emphasize
             ? active
               ? "-mt-5 rounded-2xl bg-[var(--accent)] px-4 py-2 text-white shadow-lg shadow-orange-300"
@@ -67,12 +133,31 @@ export function MobileBottomNav() {
               ? "rounded-xl bg-orange-100 px-3 py-2 text-[var(--accent)]"
               : "rounded-xl px-3 py-2 text-[var(--muted)]";
 
+          const disabledClass = isDisabled
+            ? "cursor-not-allowed opacity-40"
+            : "";
+
           return (
             <li key={item.href} className="flex-1">
-              <Link href={item.href} className={`flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${baseClass}`}>
-                <span className="material-symbols-rounded text-[20px]">{item.icon}</span>
-                <span>{item.label}</span>
-              </Link>
+              {isDisabled ? (
+                <button
+                  type="button"
+                  disabled
+                  title="プロフィール設定が100%になるとイベントを作成できます。"
+                  className={`flex w-full flex-col items-center justify-center gap-1 text-[11px] font-semibold ${baseClass} ${disabledClass}`}
+                >
+                  <span className="material-symbols-rounded text-[20px]">{item.icon}</span>
+                  <span>{item.label}</span>
+                </button>
+              ) : (
+                <Link
+                  href={item.href}
+                  className={`flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${baseClass}`}
+                >
+                  <span className="material-symbols-rounded text-[20px]">{item.icon}</span>
+                  <span>{item.label}</span>
+                </Link>
+              )}
             </li>
           );
         })}
