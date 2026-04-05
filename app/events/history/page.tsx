@@ -19,6 +19,13 @@ type HistoryResponse = {
   history: EventSummary[];
 };
 
+const periodOptions = [
+  { value: "all", label: "すべて" },
+  { value: "7d", label: "7日" },
+  { value: "30d", label: "30日" },
+  { value: "90d", label: "90日" },
+] as const;
+
 const formatStart = (start?: string | null) => {
   if (!start) return "候補から決定";
   const startDate = new Date(start);
@@ -35,6 +42,7 @@ export default function EventHistoryPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [history, setHistory] = useState<EventSummary[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [period, setPeriod] = useState<(typeof periodOptions)[number]["value"]>("30d");
 
   useEffect(() => {
     let active = true;
@@ -67,7 +75,7 @@ export default function EventHistoryPage() {
     const loadHistory = async () => {
       setIsLoading(true);
       const response = await fetch(
-        `/api/events?viewerId=${encodeURIComponent(userId)}&includePast=1`,
+        `/api/events?viewerId=${encodeURIComponent(userId)}&includePast=1&period=${period}`,
         { cache: "no-store" }
       );
       if (!response.ok || !active) {
@@ -86,7 +94,7 @@ export default function EventHistoryPage() {
     return () => {
       active = false;
     };
-  }, [userId]);
+  }, [period, userId]);
 
   const sortedHistory = useMemo(
     () =>
@@ -114,6 +122,22 @@ export default function EventHistoryPage() {
       </header>
 
       <main className="mx-auto max-w-md px-4 py-8 sm:max-w-5xl sm:px-6 sm:py-10">
+        <div className="mb-4 flex flex-wrap gap-2">
+          {periodOptions.map((option) => (
+            <button
+              key={option.value}
+              onClick={() => setPeriod(option.value)}
+              className={`rounded-full px-4 py-2 text-xs font-semibold ${
+                period === option.value
+                  ? "bg-[var(--accent)] text-white"
+                  : "bg-white text-[var(--muted)] shadow-sm"
+              }`}
+            >
+              {option.label}
+            </button>
+          ))}
+        </div>
+
         {isLoading ? (
           <div className="rounded-3xl border border-orange-100 bg-white/85 p-8 text-center text-sm text-[var(--muted)] shadow-sm">
             読み込み中...

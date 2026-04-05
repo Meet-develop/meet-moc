@@ -202,6 +202,17 @@ export async function GET(request: Request) {
   const includePast =
     searchParams.get("includePast") === "1" ||
     searchParams.get("includePast") === "true";
+  const period = searchParams.get("period") ?? "all";
+
+  const nowDate = new Date();
+  const periodStart =
+    period === "7d"
+      ? new Date(nowDate.getTime() - 7 * 24 * 60 * 60 * 1000)
+      : period === "30d"
+        ? new Date(nowDate.getTime() - 30 * 24 * 60 * 60 * 1000)
+        : period === "90d"
+          ? new Date(nowDate.getTime() - 90 * 24 * 60 * 60 * 1000)
+          : null;
 
   const events = await prisma.event.findMany({
     include: {
@@ -322,7 +333,8 @@ export async function GET(request: Request) {
           event.viewerRelation === "participating" &&
           event.status !== "cancelled" &&
           event.startTime != null &&
-          new Date(event.startTime).getTime() <= now
+          new Date(event.startTime).getTime() <= now &&
+          (!periodStart || new Date(event.startTime).getTime() >= periodStart.getTime())
       )
       .sort(
         (a, b) =>
