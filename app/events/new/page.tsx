@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
@@ -170,6 +170,14 @@ const buildComparableFromEvent = (event: EventEditResponse): EventUpdateComparab
 };
 
 export default function EventCreatePage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen pb-4" />}>
+      <EventCreatePageContent />
+    </Suspense>
+  );
+}
+
+function EventCreatePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const editEventId = searchParams.get("editEventId");
