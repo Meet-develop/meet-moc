@@ -18,6 +18,68 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
 
+## Docker (PostgreSQL)
+
+This project can run entirely in Docker with a PostgreSQL database.
+
+```bash
+docker compose up --build
+```
+
+- App: http://localhost:3000
+- Postgres: localhost:5432 (db: meet_moc, user: postgres, password: postgres)
+
+To stop and remove containers:
+
+```bash
+docker compose down
+```
+
+## Environment Variables
+
+Copy `.env.example` to `.env` and set the following:
+
+- `NEXT_PUBLIC_SUPABASE_URL`
+- `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+- `GOOGLE_PLACES_API_KEY`
+
+## Supabase Auth Callback Setup
+
+This app routes auth callbacks to `/auth/callback` and then decides whether to move the user to profile setup or the main feed.
+
+Configure these in Supabase Dashboard:
+
+- Authentication -> URL Configuration -> Site URL: `http://localhost:3000`
+- Authentication -> URL Configuration -> Additional Redirect URLs: `http://localhost:3000/auth/callback`
+
+## Supabase RLS (profiles)
+
+Use SQL in `supabase/profiles_rls.sql` in Supabase SQL Editor to enable row-level security for `public.profiles`.
+
+Place search results are cached in the `place_cache` table to reduce API usage.
+
+## Prisma (Schema + Seed)
+
+Prisma is set up for type-safe DB access. The database schema is defined in
+`prisma/schema.prisma` and applied via Prisma migrations.
+
+Apply migrations, generate the Prisma client, and seed data inside the app container:
+
+```bash
+docker compose exec app npm run db:migrate
+docker compose exec app npx prisma generate
+docker compose exec app npm run db:seed
+```
+
+## Key Screens
+
+- `/onboarding`: Supabase login (email/password for test)
+- `/profile/setup`: profile details
+- `/events/new`: create event
+- `/events/[id]`: event detail
+- `/events/[id]/manage`: owner actions
+- `/notifications`: notifications
+
 This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
 
 ## Learn More

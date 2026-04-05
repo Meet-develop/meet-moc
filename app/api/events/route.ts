@@ -1,0 +1,622 @@
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
+import { getPlacesForQuery } from "@/lib/places";
+
+const dayIndex: Record<string, number> = {
+  sun: 0,
+  mon: 1,
+  tue: 2,
+  wed: 3,
+  thu: 4,
+  fri: 5,
+  sat: 6,
+};
+
+const weekdayKeyByIndex: Record<
+  number,
+  "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" | undefined
+> = {
+  0: "sun",
+  1: "mon",
+  2: "tue",
+  3: "wed",
+  4: "thu",
+  5: "fri",
+  6: "sat",
+};
+
+type PlaceCandidateInput = {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  priceLevel?: number;
+  score: number;
+  source: "system";
+};
+
+const toPlaceCandidateInput = (place: {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  priceLevel?: number;
+}): PlaceCandidateInput => ({
+  placeId: place.placeId,
+  name: place.name,
+  address: place.address,
+  lat: place.lat,
+  lng: place.lng,
+  priceLevel: place.priceLevel,
+  score: 0,
+  source: "system",
+});
+
+const buildDefaultTimeCandidates = (availability?: {
+  weekdaySlots?: Record<string, { daytime?: boolean; night?: boolean }>;
+  days?: string[];
+  timeRanges?: { start: string; end: string }[];
+}) => {
+  const now = new Date();
+  const weekdaySlots = availability?.weekdaySlots;
+  const candidates: { startTime: Date; endTime: Date; score: number; source: "system" }[] = [];
+
+  if (weekdaySlots) {
+    let offset = 1;
+    while (candidates.length < 3 && offset < 21) {
+      const date = new Date(now);
+      date.setDate(now.getDate() + offset);
+      const dayKey = weekdayKeyByIndex[date.getDay()];
+      if (!dayKey) {
+        offset += 1;
+        continue;
+      }
+
+      const slot = weekdaySlots[dayKey];
+      if (!slot?.daytime && !slot?.night) {
+        offset += 1;
+        continue;
+      }
+
+      if (slot.daytime && candidates.length < 3) {
+        const start = new Date(date);
+        start.setHours(13, 0, 0, 0);
+        const end = new Date(start);
+        end.setHours(15, 0, 0, 0);
+        candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
+      }
+
+      if (slot.night && candidates.length < 3) {
+        const start = new Date(date);
+        start.setHours(19, 0, 0, 0);
+        const end = new Date(start);
+        end.setHours(21, 0, 0, 0);
+        candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
+      }
+
+      offset += 1;
+    }
+  }
+
+  if (candidates.length > 0) {
+    return candidates.slice(0, 3);
+  }
+
+  const startRange = availability?.timeRanges?.[0]?.start ?? "19:00";
+  const endRange = availability?.timeRanges?.[0]?.end ?? "22:00";
+  const availableDays = availability?.days?.map((day) => dayIndex[day]).filter((day) => day !== undefined);
+  let offset = 1;
+
+  while (candidates.length < 3 && offset < 14) {
+    const date = new Date(now);
+    date.setDate(now.getDate() + offset);
+    if (availableDays && availableDays.length > 0 && !availableDays.includes(date.getDay())) {
+      offset += 1;
+      continue;
+    }
+
+    const [startHour, startMinute] = startRange.split(":").map(Number);
+    const [endHour, endMinute] = endRange.split(":").map(Number);
+    const start = new Date(date);
+    start.setHours(startHour || 19, startMinute || 0, 0, 0);
+    const end = new Date(date);
+    end.setHours(endHour || 22, endMinute || 0, 0, 0);
+
+    candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
+    offset += 1;
+  }
+
+  if (candidates.length === 0) {
+    const fallback = new Date(now);
+    fallback.setDate(now.getDate() + 1);
+    fallback.setHours(19, 0, 0, 0);
+    const end = new Date(fallback);
+    end.setHours(22, 0, 0, 0);
+    return [{ startTime: fallback, endTime: end, score: 0, source: "system" as const }];
+  }
+
+  return candidates;
+};
+
+const buildPlaceCandidates = async (query: string): Promise<PlaceCandidateInput[]> => {
+  const places = await getPlacesForQuery(query);
+  const normalized = places.slice(0, 3).map(toPlaceCandidateInput);
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  return Array.from({ length: 3 }).map((_, index) => ({
+    placeId: `${query}-fallback-${index + 1}`,
+    name: `${query} 候補${index + 1}`,
+    address: "未設定",
+    lat: 0,
+    lng: 0,
+    priceLevel: undefined,
+    score: 0,
+    source: "system" as const,
+  }));
+};
+
+const buildPlaceCandidatesFromFavoriteAreas = async (
+  favoriteAreas: string[],
+  purpose: string
+): Promise<PlaceCandidateInput[]> => {
+  const uniqueByPlaceId = new Map<string, PlaceCandidateInput>();
+
+  for (const area of favoriteAreas.slice(0, 3)) {
+    const query = `${area} ${purpose}`.trim();
+    const places = await getPlacesForQuery(query);
+
+    for (const place of places) {
+      if (!uniqueByPlaceId.has(place.placeId)) {
+        uniqueByPlaceId.set(place.placeId, toPlaceCandidateInput(place));
+      }
+      if (uniqueByPlaceId.size >= 3) {
+        return Array.from(uniqueByPlaceId.values()).slice(0, 3);
+      }
+    }
+  }
+
+  return Array.from(uniqueByPlaceId.values()).slice(0, 3);
+};
+
+const getEventStartTime = (event: {
+  fixedStartTime: Date | null;
+  timeCandidates: { startTime: Date }[];
+}) => {
+  if (event.fixedStartTime) return event.fixedStartTime;
+  if (event.timeCandidates.length === 0) return null;
+
+  const earliestTime = Math.min(
+    ...event.timeCandidates.map((candidate) => candidate.startTime.getTime())
+  );
+  return Number.isFinite(earliestTime) ? new Date(earliestTime) : null;
+};
+
+export async function GET(request: Request) {
+  const { searchParams } = new URL(request.url);
+  const viewerId = searchParams.get("viewerId");
+  const includePast =
+    searchParams.get("includePast") === "1" ||
+    searchParams.get("includePast") === "true";
+  const period = searchParams.get("period") ?? "all";
+
+  const nowDate = new Date();
+  const periodStart =
+    period === "7d"
+      ? new Date(nowDate.getTime() - 7 * 24 * 60 * 60 * 1000)
+      : period === "30d"
+        ? new Date(nowDate.getTime() - 30 * 24 * 60 * 60 * 1000)
+        : period === "90d"
+          ? new Date(nowDate.getTime() - 90 * 24 * 60 * 60 * 1000)
+          : null;
+
+  const events = await prisma.event.findMany({
+    include: {
+      owner: true,
+      participants: true,
+      invites: true,
+      timeCandidates: true,
+      placeCandidates: true,
+    },
+    orderBy: { createdAt: "desc" },
+  });
+
+  let favoriteOwnerIds = new Set<string>();
+  if (viewerId) {
+    const favorites = await prisma.favoriteFriend.findMany({
+      where: { userId: viewerId },
+      select: { favoriteUserId: true },
+    });
+    favoriteOwnerIds = new Set(favorites.map((favorite) => favorite.favoriteUserId));
+  }
+
+  const formatted = events
+    .filter((event) => {
+      if (!viewerId) {
+        return event.visibility === "public";
+      }
+
+      const isOwner = event.ownerId === viewerId;
+      const isParticipant = event.participants.some((participant) => participant.userId === viewerId);
+      const isInvited = event.invites.some((invite) => invite.inviteeId === viewerId);
+      return event.visibility === "public" || isOwner || isParticipant || isInvited;
+    })
+    .map((event) => {
+      const eventArea = (event as { area?: string | null }).area ?? null;
+      const approvedCount = event.participants.filter(
+        (participant) => participant.status === "approved"
+      ).length;
+      const isOwner = viewerId ? event.ownerId === viewerId : false;
+      const isJoinedParticipant = viewerId
+        ? event.participants.some(
+            (participant) =>
+              participant.userId === viewerId &&
+              participant.status !== "declined" &&
+              participant.status !== "cancelled"
+          )
+        : false;
+      const pendingInvite = viewerId
+        ? event.invites.find(
+            (invite) => invite.inviteeId === viewerId && (invite.status === "pending" || invite.status === "accepted")
+          )
+        : undefined;
+      const timeCandidates = [...event.timeCandidates]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((candidate) => ({
+          id: candidate.id,
+          startTime: candidate.startTime,
+          endTime: candidate.endTime,
+          score: candidate.score,
+        }));
+      const placeCandidates = [...event.placeCandidates]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 3)
+        .map((candidate) => ({
+          id: candidate.id,
+          name: candidate.name,
+          address: candidate.address,
+          score: candidate.score,
+        }));
+      const startTime = getEventStartTime(event);
+
+      return {
+        id: event.id,
+        purpose: event.purpose,
+        area: eventArea,
+        visibility: event.visibility,
+        capacity: event.capacity,
+        status: event.status,
+        scheduleMode: event.scheduleMode,
+        startTime,
+        fixedStartTime: event.fixedStartTime,
+        fixedEndTime: event.fixedEndTime,
+        fixedPlaceId: event.fixedPlaceId,
+        fixedPlaceName: event.fixedPlaceName,
+        fixedPlaceAddress: event.fixedPlaceAddress,
+        owner: {
+          userId: event.owner.userId,
+          displayName: event.owner.displayName,
+          avatarIcon: event.owner.avatarIcon,
+        },
+        approvedCount,
+        participantUserIds: event.participants
+          .filter((participant) => participant.status === "approved")
+          .map((participant) => participant.userId),
+        timeCandidates,
+        placeCandidates,
+        isFavoriteOwner: viewerId ? favoriteOwnerIds.has(event.ownerId) : false,
+        viewerRelation: isOwner || isJoinedParticipant
+          ? "participating"
+          : pendingInvite
+            ? "invited"
+            : "public",
+        createdAt: event.createdAt,
+      };
+    })
+    .sort((a, b) => {
+      if (a.isFavoriteOwner && !b.isFavoriteOwner) return -1;
+      if (!a.isFavoriteOwner && b.isFavoriteOwner) return 1;
+      return 0;
+    });
+
+  const now = Date.now();
+
+  if (includePast) {
+    const history = formatted
+      .filter(
+        (event) =>
+          event.viewerRelation === "participating" &&
+          event.status !== "cancelled" &&
+          event.startTime != null &&
+          new Date(event.startTime).getTime() <= now &&
+          (!periodStart || new Date(event.startTime).getTime() >= periodStart.getTime())
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.startTime as Date).getTime() -
+          new Date(a.startTime as Date).getTime()
+      );
+
+    return NextResponse.json(
+      {
+        history,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
+    );
+  }
+
+  const upcoming = formatted.filter(
+    (event) =>
+      event.startTime == null || new Date(event.startTime).getTime() > now
+  );
+
+  const participating = upcoming.filter((event) => event.viewerRelation === "participating");
+  const invited = upcoming.filter((event) => event.viewerRelation === "invited");
+  const publicEvents = upcoming.filter((event) => event.viewerRelation === "public");
+
+  return NextResponse.json(
+    {
+      participating,
+      invited,
+      public: publicEvents,
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    }
+  );
+}
+
+export async function POST(request: Request) {
+  const body = (await request.json()) as {
+    ownerId?: string;
+    purpose?: string;
+    eventArea?: string;
+    visibility?: "public" | "limited" | "private";
+    capacity?: number;
+    scheduleMode?: "fixed" | "candidate";
+    timeSetting?: "auto" | "manual";
+    placeSetting?: "auto" | "manual";
+    fixedStartTime?: string;
+    fixedPlace?: {
+      placeId: string;
+      name: string;
+      address: string;
+    };
+    placeQuery?: string;
+    candidatePlaces?: {
+      placeId: string;
+      name: string;
+      address: string;
+      lat: number;
+      lng: number;
+      priceLevel?: number;
+    }[];
+    inviteeIds?: string[];
+  };
+
+  if (!body.ownerId || !body.purpose || body.capacity == null) {
+    return NextResponse.json(
+      { message: "ownerId, purpose, capacity are required" },
+      { status: 400 }
+    );
+  }
+
+  const legacyFixed = body.scheduleMode === "fixed";
+  const isTimeManual = body.timeSetting
+    ? body.timeSetting === "manual"
+    : legacyFixed;
+  const isPlaceManual = body.placeSetting
+    ? body.placeSetting === "manual"
+    : legacyFixed;
+  const resolvedScheduleMode =
+    isTimeManual && isPlaceManual ? "fixed" : "candidate";
+
+  if (isTimeManual && !body.fixedStartTime) {
+    return NextResponse.json(
+      { message: "fixedStartTime is required when timeSetting is manual" },
+      { status: 400 }
+    );
+  }
+
+  if (isPlaceManual && !body.fixedPlace) {
+    return NextResponse.json(
+      { message: "fixedPlace is required when placeSetting is manual" },
+      { status: 400 }
+    );
+  }
+
+  let ownerProfile = await prisma.profile.findUnique({
+    where: { userId: body.ownerId },
+  });
+
+  if (!ownerProfile) {
+    ownerProfile = await prisma.profile.create({
+      data: {
+        userId: body.ownerId,
+        displayName: `ユーザー${body.ownerId.slice(0, 4)}`,
+        gender: "unspecified",
+        favoriteAreas: body.eventArea?.trim() ? [body.eventArea.trim()] : [],
+      },
+    });
+  }
+  const normalizedEventArea = body.eventArea?.trim();
+  const resolvedEventArea =
+    normalizedEventArea || ownerProfile?.favoriteAreas?.[0] || null;
+
+  const fixedStartDate = body.fixedStartTime ? new Date(body.fixedStartTime) : undefined;
+  const fixedEndDate = fixedStartDate
+    ? new Date(fixedStartDate.getTime() + 2 * 60 * 60 * 1000)
+    : undefined;
+
+  const eventCreateData: {
+    ownerId: string;
+    purpose: string;
+    area?: string | null;
+    visibility: "public" | "limited" | "private";
+    capacity: number;
+    scheduleMode: "fixed" | "candidate";
+    fixedStartTime?: Date;
+    fixedEndTime?: Date;
+    fixedPlaceId?: string;
+    fixedPlaceName?: string;
+    fixedPlaceAddress?: string;
+  } = {
+    ownerId: body.ownerId,
+    purpose: body.purpose,
+    visibility: body.visibility ?? "public",
+    capacity: body.capacity,
+    scheduleMode: resolvedScheduleMode,
+    fixedStartTime: fixedStartDate,
+    fixedEndTime: fixedEndDate,
+    fixedPlaceId: body.fixedPlace?.placeId,
+    fixedPlaceName: body.fixedPlace?.name,
+    fixedPlaceAddress: body.fixedPlace?.address,
+  };
+
+  if (resolvedEventArea) {
+    eventCreateData.area = resolvedEventArea;
+  }
+
+  let event;
+  try {
+    event = await prisma.event.create({
+      data: eventCreateData as never,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Unknown argument `area`")) {
+      const fallbackData = { ...eventCreateData };
+      delete fallbackData.area;
+      event = await prisma.event.create({
+        data: fallbackData,
+      });
+    } else {
+      throw error;
+    }
+  }
+
+  await prisma.eventParticipant.create({
+    data: {
+      eventId: event.id,
+      userId: body.ownerId,
+      status: "approved",
+      role: "owner",
+    },
+  });
+
+  if (
+    resolvedEventArea &&
+    ownerProfile &&
+    (ownerProfile.favoriteAreas?.length ?? 0) === 0
+  ) {
+    await prisma.profile.update({
+      where: { userId: body.ownerId },
+      data: {
+        favoriteAreas: [resolvedEventArea],
+      },
+    });
+  }
+
+  if (resolvedScheduleMode === "candidate") {
+    if (!isTimeManual) {
+      const timeCandidates = buildDefaultTimeCandidates(
+        ownerProfile?.availability as
+          | {
+              weekdaySlots?: Record<string, { daytime?: boolean; night?: boolean }>;
+              days?: string[];
+              timeRanges?: { start: string; end: string }[];
+            }
+          | undefined
+      );
+      await prisma.eventTimeCandidate.createMany({
+        data: timeCandidates.map((candidate) => ({
+          eventId: event.id,
+          ...candidate,
+        })),
+      });
+    }
+
+    if (!isPlaceManual) {
+      if (body.candidatePlaces && body.candidatePlaces.length > 0) {
+        await prisma.eventPlaceCandidate.createMany({
+          data: body.candidatePlaces.slice(0, 5).map((candidate) => ({
+            eventId: event.id,
+            placeId: candidate.placeId,
+            name: candidate.name,
+            address: candidate.address,
+            lat: candidate.lat,
+            lng: candidate.lng,
+            priceLevel: candidate.priceLevel,
+            score: 0,
+            source: "system",
+          })),
+        });
+      } else {
+        const preferredAreas = resolvedEventArea
+          ? [
+              resolvedEventArea,
+              ...(ownerProfile?.favoriteAreas ?? []).filter(
+                (area) => area !== resolvedEventArea
+              ),
+            ]
+          : ownerProfile?.favoriteAreas ?? [];
+        const favoriteAreaCandidates = await buildPlaceCandidatesFromFavoriteAreas(
+          preferredAreas,
+          body.purpose
+        );
+
+        const fallbackQuery = resolvedEventArea
+          ? `${resolvedEventArea} ${body.purpose}`
+          : ownerProfile?.favoriteAreas?.[0]
+            ? `${ownerProfile.favoriteAreas[0]} ${body.purpose}`
+            : body.purpose;
+        const query = body.placeQuery ?? fallbackQuery;
+        const fallbackCandidates = query ? await buildPlaceCandidates(query) : [];
+
+        const mergedByPlaceId = new Map<string, PlaceCandidateInput>();
+        for (const candidate of [...favoriteAreaCandidates, ...fallbackCandidates]) {
+          if (!mergedByPlaceId.has(candidate.placeId)) {
+            mergedByPlaceId.set(candidate.placeId, candidate);
+          }
+          if (mergedByPlaceId.size >= 3) break;
+        }
+
+        const placeCandidates = Array.from(mergedByPlaceId.values()).slice(0, 3);
+
+        if (placeCandidates.length > 0) {
+          await prisma.eventPlaceCandidate.createMany({
+            data: placeCandidates.map((candidate) => ({
+              eventId: event.id,
+              ...candidate,
+            })),
+          });
+        }
+      }
+    }
+  }
+
+  if (body.inviteeIds && body.inviteeIds.length > 0) {
+    await prisma.eventInvite.createMany({
+      data: body.inviteeIds.map((inviteeId) => ({
+        eventId: event.id,
+        inviterId: body.ownerId as string,
+        inviteeId,
+        token: crypto.randomUUID(),
+        status: "pending" as const,
+      })),
+    });
+  }
+
+  return NextResponse.json({ id: event.id });
+}
