@@ -6,10 +6,12 @@ import Image from "next/image";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { AvatarName } from "@/components/ui/avatar-name";
+import { AuthOverlay } from "@/components/features/auth/auth-overlay";
 
 type EventDetail = {
   id: string;
   purpose: string;
+  comment?: string | null;
   area?: string | null;
   visibility: "public" | "limited" | "private";
   capacity: number;
@@ -22,6 +24,18 @@ type EventDetail = {
   fixedPlaceAddress?: string | null;
   owner: { userId: string; displayName: string; avatarIcon?: string | null };
   participants: {
+    userId: string;
+    displayName: string;
+    avatarIcon?: string | null;
+    status: string;
+    role: string;
+    invitedBy?: {
+      userId: string;
+      displayName: string;
+      avatarIcon?: string | null;
+    } | null;
+  }[];
+  invitedUsers?: {
     userId: string;
     displayName: string;
     avatarIcon?: string | null;
@@ -157,6 +171,7 @@ export default function EventDetailPage() {
   const params = useParams();
   const router = useRouter();
   const eventId = params.id as string;
+  const returnToPath = `/events/${eventId}`;
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -188,6 +203,8 @@ export default function EventDetailPage() {
   const [timeVoteSelection, setTimeVoteSelection] = useState<Record<string, boolean | undefined>>({});
   const [placeVoteSelection, setPlaceVoteSelection] = useState<Record<string, "good" | "bad" | undefined>>({});
   const [nowTs, setNowTs] = useState<number>(() => new Date().getTime());
+  const [isAuthOverlayOpen, setIsAuthOverlayOpen] = useState(false);
+  const [authOverlayMode, setAuthOverlayMode] = useState<"login" | "signup">("login");
 
   useEffect(() => {
     const loadUser = async () => {
@@ -252,18 +269,33 @@ export default function EventDetailPage() {
     return participant?.status ?? null;
   }, [event, userId]);
 
-  const filteredInviteFriends = useMemo(() => {
-    const keyword = inviteSearch.trim().toLowerCase();
-    if (!keyword) return friends;
+  const invitedOrParticipantIds = useMemo(() => {
+    if (!event) return new Set<string>();
+    const ids = new Set<string>();
+    event.participants.forEach((participant) => {
+      if (participant.status !== "declined" && participant.status !== "cancelled") {
+        ids.add(participant.userId);
+      }
+    });
+    (event.invitedUsers ?? []).forEach((invitee) => {
+      ids.add(invitee.userId);
+    });
+    return ids;
+  }, [event]);
 
-    return friends.filter((friend) => {
+  const filteredInviteFriends = useMemo(() => {
+    const candidateFriends = friends.filter((friend) => !invitedOrParticipantIds.has(friend.userId));
+    const keyword = inviteSearch.trim().toLowerCase();
+    if (!keyword) return candidateFriends;
+
+    return candidateFriends.filter((friend) => {
       const area = friend.area ?? "";
       return (
         friend.displayName.toLowerCase().includes(keyword) ||
         area.toLowerCase().includes(keyword)
       );
     });
-  }, [friends, inviteSearch]);
+  }, [friends, inviteSearch, invitedOrParticipantIds]);
 
   const isOwner = event?.owner.userId === userId;
   const isOpenCandidateEvent = event?.status === "open" && event?.scheduleMode === "candidate";
@@ -275,12 +307,57 @@ export default function EventDetailPage() {
   const candidateActionsDisabled = Boolean(
     isOpenCandidateEvent && hasCandidateDeadlinePassed
   );
+  const canAccessParticipantActions = Boolean(
+    event && userId && (isOwner || participantStatus === "approved")
+  );
+  const participantActionNotice = !userId
+    ? "ログイン後に利用できます。"
+    : participantStatus === "requested"
+      ? "オーナー承認後に利用できます。"
+      : "参加登録後に利用できます。";
 
   const openInviteOverlay = () => {
+    if (!userId) {
+      setAuthOverlayMode("login");
+      setIsAuthOverlayOpen(true);
+      return;
+    }
+
+    if (!canAccessParticipantActions) {
+      setInviteMessage(participantActionNotice);
+      return;
+    }
+
     setInviteMessage(null);
     setInviteLink(null);
     setInviteSearch("");
     setShowInviteOverlay(true);
+  };
+
+  const openTimeProposalOverlay = () => {
+    if (!userId) {
+      setAuthOverlayMode("login");
+      setIsAuthOverlayOpen(true);
+      return;
+    }
+    if (!canAccessParticipantActions) {
+      setInviteMessage(participantActionNotice);
+      return;
+    }
+    setShowTimeOverlay(true);
+  };
+
+  const openPlaceProposalOverlay = () => {
+    if (!userId) {
+      setAuthOverlayMode("login");
+      setIsAuthOverlayOpen(true);
+      return;
+    }
+    if (!canAccessParticipantActions) {
+      setInviteMessage(participantActionNotice);
+      return;
+    }
+    setShowPlaceOverlay(true);
   };
 
   const statusMeta = useMemo(() => {
@@ -314,7 +391,11 @@ export default function EventDetailPage() {
   }, [event, nowTs]);
 
   const handleJoin = async () => {
-    if (!userId) return;
+    if (!userId) {
+      setAuthOverlayMode("login");
+      setIsAuthOverlayOpen(true);
+      return;
+    }
     await fetch(`/api/events/${eventId}/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -324,6 +405,27 @@ export default function EventDetailPage() {
     const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
     const data = (await response.json()) as EventDetail;
     setEvent(data);
+  };
+
+  const handleLeave = async () => {
+    if (!userId) {
+      setAuthOverlayMode("login");
+      setIsAuthOverlayOpen(true);
+      return;
+    }
+
+    await fetch(`/api/events/${eventId}/leave`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+
+    const query = userId ? `?viewerId=${userId}` : "";
+    const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
+    if (response.ok) {
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+    }
   };
 
   const handleRecreateFromCompleted = async (
@@ -401,7 +503,14 @@ export default function EventDetailPage() {
 
   const handleTimeVote = async (candidateId: string, isAvailable: boolean) => {
     const currentTs = new Date().getTime();
-    if (!userId || !event || isCandidateDeadlineExpired(event, currentTs)) return;
+    if (
+      !userId ||
+      !event ||
+      !canAccessParticipantActions ||
+      isCandidateDeadlineExpired(event, currentTs)
+    ) {
+      return;
+    }
     setTimeVoteSelection((prev) => ({ ...prev, [candidateId]: isAvailable }));
     await fetch(`/api/events/${eventId}/votes/time`, {
       method: "POST",
@@ -418,7 +527,14 @@ export default function EventDetailPage() {
 
   const handlePlaceVote = async (candidateId: string, kind: "good" | "bad") => {
     const currentTs = new Date().getTime();
-    if (!userId || !event || isCandidateDeadlineExpired(event, currentTs)) return;
+    if (
+      !userId ||
+      !event ||
+      !canAccessParticipantActions ||
+      isCandidateDeadlineExpired(event, currentTs)
+    ) {
+      return;
+    }
     const score = kind === "good" ? 5 : 1;
     setPlaceVoteSelection((prev) => ({ ...prev, [candidateId]: kind }));
     await fetch(`/api/events/${eventId}/votes/place`, {
@@ -435,7 +551,14 @@ export default function EventDetailPage() {
   };
 
   const handleTimeProposal = async (startTime: string) => {
-    if (!userId || !event || isCandidateDeadlineExpired(event, Date.now())) return;
+    if (
+      !userId ||
+      !event ||
+      !canAccessParticipantActions ||
+      isCandidateDeadlineExpired(event, Date.now())
+    ) {
+      return;
+    }
     await fetch(`/api/events/${eventId}/proposals`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -461,7 +584,14 @@ export default function EventDetailPage() {
 
   const handlePlaceProposal = async (place: PlaceResult) => {
     const currentTs = new Date().getTime();
-    if (!userId || !event || isCandidateDeadlineExpired(event, currentTs)) return;
+    if (
+      !userId ||
+      !event ||
+      !canAccessParticipantActions ||
+      isCandidateDeadlineExpired(event, currentTs)
+    ) {
+      return;
+    }
     await fetch(`/api/events/${eventId}/proposals`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -487,7 +617,9 @@ export default function EventDetailPage() {
   };
 
   const handleInviteFriends = async () => {
-    if (!event || !userId || selectedInviteeIds.length === 0) return;
+    if (!event || !userId || !canAccessParticipantActions || selectedInviteeIds.length === 0) {
+      return;
+    }
 
     const requestMode = event.visibility === "private" && userId !== event.owner.userId;
     const response = await fetch(`/api/events/${eventId}/invites`, {
@@ -594,14 +726,6 @@ export default function EventDetailPage() {
       </header>
 
       <main className="mx-auto max-w-md px-4 py-8 sm:max-w-5xl sm:px-6 sm:py-10">
-        {!userId && (
-          <div className="mb-6 rounded-3xl bg-white/80 p-4 text-sm text-[var(--muted)] shadow-sm">
-            参加や投票にはログインが必要です。
-            <Link href="/onboarding" className="ml-2 text-[var(--accent)]">
-              ログインはこちら
-            </Link>
-          </div>
-        )}
         <section>
           <div>
               <p className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2.5 py-1 text-xs font-semibold text-[var(--accent)]">
@@ -688,13 +812,29 @@ export default function EventDetailPage() {
                 <span className="material-symbols-rounded">settings</span>
                 オーナー管理
               </Link>
-            ) : participantStatus ? (
+            ) : participantStatus === "approved" ? (
+              <div className="w-full space-y-2 sm:w-auto">
+                <button
+                  disabled
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-500"
+                >
+                  <span className="material-symbols-rounded">check_circle</span>
+                  参加登録済み
+                </button>
+                <button
+                  onClick={handleLeave}
+                  className="w-full text-center text-[11px] font-semibold text-[var(--muted)] underline-offset-2 hover:underline"
+                >
+                  参加登録を解除
+                </button>
+              </div>
+            ) : participantStatus === "requested" ? (
               <button
                 disabled
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-500 sm:w-auto"
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-amber-50 px-4 py-2 text-xs font-semibold text-amber-700 sm:w-auto"
               >
-                <span className="material-symbols-rounded">check_circle</span>
-                参加登録済み
+                <span className="material-symbols-rounded">schedule</span>
+                承認待ち
               </button>
             ) : (
               <button
@@ -702,10 +842,18 @@ export default function EventDetailPage() {
                 className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
               >
                 <span className="material-symbols-rounded">send</span>
-                参加登録する
+                参加リクエスト
               </button>
             )}
           </div>
+          {event.comment && event.comment.trim().length > 0 && (
+            <div className="mt-5 rounded-2xl border border-orange-100 bg-orange-50 px-4 py-3">
+              <p className="text-xs font-semibold text-[var(--accent)]">コメント</p>
+              <p className="mt-1 whitespace-pre-wrap text-sm text-[var(--muted)]">
+                {event.comment}
+              </p>
+            </div>
+          )}
           {recreateMessage && (
             <p className="mt-2 text-xs font-semibold text-rose-700">{recreateMessage}</p>
           )}
@@ -713,6 +861,11 @@ export default function EventDetailPage() {
 
         {(needsTimeCandidates || needsPlaceCandidates) && (
           <section className="mt-8 space-y-6 pt-6">
+            {!canAccessParticipantActions && (
+              <p className="rounded-2xl bg-gray-50 px-4 py-3 text-xs font-semibold text-[var(--muted)]">
+                候補の追加や投票は、参加登録後に利用できます。
+              </p>
+            )}
             {candidateActionsDisabled && (
               <p className="rounded-2xl bg-amber-50 px-4 py-3 text-xs font-semibold text-amber-700">
                 投票期限が過ぎたため、候補の追加と投票はできません。
@@ -723,9 +876,9 @@ export default function EventDetailPage() {
               <h2 className="flex items-center gap-2 text-lg font-semibold">
                 日程候補
                 <button
-                  onClick={() => setShowTimeOverlay(true)}
-                  disabled={candidateActionsDisabled}
-                  className={`${plusButtonClass} ${candidateActionsDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                  onClick={openTimeProposalOverlay}
+                  disabled={candidateActionsDisabled || !canAccessParticipantActions}
+                  className={`${plusButtonClass} ${candidateActionsDisabled || !canAccessParticipantActions ? "cursor-not-allowed opacity-50" : ""}`}
                   aria-label="日程を提案"
                 >
                   <span className="material-symbols-rounded">add</span>
@@ -750,28 +903,28 @@ export default function EventDetailPage() {
                       <div className="flex shrink-0 items-center gap-2">
                         <button
                           onClick={() => handleTimeVote(candidate.id, true)}
-                          disabled={candidateActionsDisabled}
+                          disabled={candidateActionsDisabled || !canAccessParticipantActions}
                           className={`grid h-9 w-9 place-items-center rounded-full ${
                             selected === true
                               ? "bg-emerald-100 text-emerald-700"
                               : selected === false
                                 ? "bg-gray-100 text-gray-400"
                                 : "bg-white text-[var(--muted)] shadow-sm"
-                          } ${candidateActionsDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                          } ${candidateActionsDisabled || !canAccessParticipantActions ? "cursor-not-allowed opacity-50" : ""}`}
                           aria-label="この候補は参加可能"
                         >
                           <span className="material-symbols-rounded text-base">check</span>
                         </button>
                         <button
                           onClick={() => handleTimeVote(candidate.id, false)}
-                          disabled={candidateActionsDisabled}
+                          disabled={candidateActionsDisabled || !canAccessParticipantActions}
                           className={`grid h-9 w-9 place-items-center rounded-full ${
                             selected === false
                               ? "bg-rose-100 text-rose-700"
                               : selected === true
                                 ? "bg-gray-100 text-gray-400"
                                 : "bg-white text-[var(--muted)] shadow-sm"
-                          } ${candidateActionsDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                          } ${candidateActionsDisabled || !canAccessParticipantActions ? "cursor-not-allowed opacity-50" : ""}`}
                           aria-label="この候補は参加不可"
                         >
                           <span className="material-symbols-rounded text-base">close</span>
@@ -791,9 +944,9 @@ export default function EventDetailPage() {
               <h2 className="flex items-center gap-2 text-lg font-semibold">
                 場所
                 <button
-                  onClick={() => setShowPlaceOverlay(true)}
-                  disabled={candidateActionsDisabled}
-                  className={`${plusButtonClass} ${candidateActionsDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                  onClick={openPlaceProposalOverlay}
+                  disabled={candidateActionsDisabled || !canAccessParticipantActions}
+                  className={`${plusButtonClass} ${candidateActionsDisabled || !canAccessParticipantActions ? "cursor-not-allowed opacity-50" : ""}`}
                   aria-label="場所を提案"
                 >
                   <span className="material-symbols-rounded">add</span>
@@ -842,14 +995,14 @@ export default function EventDetailPage() {
                             clickEvent.stopPropagation();
                             handlePlaceVote(candidate.id, "good");
                           }}
-                          disabled={candidateActionsDisabled}
+                          disabled={candidateActionsDisabled || !canAccessParticipantActions}
                           className={`grid h-9 w-9 place-items-center rounded-full ${
                             selected === "good"
                               ? "bg-emerald-100 text-emerald-700"
                               : selected === "bad"
                                 ? "bg-gray-100 text-gray-400"
                                 : "bg-white text-[var(--muted)] shadow-sm"
-                          } ${candidateActionsDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                          } ${candidateActionsDisabled || !canAccessParticipantActions ? "cursor-not-allowed opacity-50" : ""}`}
                           aria-label="このお店は良い"
                         >
                           <span className="material-symbols-rounded text-base">thumb_up</span>
@@ -859,14 +1012,14 @@ export default function EventDetailPage() {
                             clickEvent.stopPropagation();
                             handlePlaceVote(candidate.id, "bad");
                           }}
-                          disabled={candidateActionsDisabled}
+                          disabled={candidateActionsDisabled || !canAccessParticipantActions}
                           className={`grid h-9 w-9 place-items-center rounded-full ${
                             selected === "bad"
                               ? "bg-rose-100 text-rose-700"
                               : selected === "good"
                                 ? "bg-gray-100 text-gray-400"
                                 : "bg-white text-[var(--muted)] shadow-sm"
-                          } ${candidateActionsDisabled ? "cursor-not-allowed opacity-50" : ""}`}
+                          } ${candidateActionsDisabled || !canAccessParticipantActions ? "cursor-not-allowed opacity-50" : ""}`}
                           aria-label="このお店は微妙"
                         >
                           <span className="material-symbols-rounded text-base">thumb_down</span>
@@ -886,19 +1039,21 @@ export default function EventDetailPage() {
         <section className="mt-8 pt-6">
           <div className="flex items-center gap-2">
             <h2 className="text-lg font-semibold">参加者</h2>
-            {userId && (
-              <button
-                onClick={openInviteOverlay}
-                className={plusButtonClass}
-                aria-label="参加者を招待"
-              >
-                <span className="material-symbols-rounded">add</span>
-              </button>
-            )}
+            <button
+              onClick={openInviteOverlay}
+              disabled={!canAccessParticipantActions}
+              className={`${plusButtonClass} ${!canAccessParticipantActions ? "cursor-not-allowed opacity-50" : ""}`}
+              aria-label="参加者を招待"
+            >
+              <span className="material-symbols-rounded">add</span>
+            </button>
           </div>
+          {!canAccessParticipantActions && (
+            <p className="mt-2 text-xs text-[var(--muted)]">招待機能は参加登録後に利用できます。</p>
+          )}
           {inviteMessage && <p className="mt-2 text-xs text-[var(--accent)]">{inviteMessage}</p>}
           <ul className="mt-4 grid gap-3 md:grid-cols-2">
-            {event.participants.map((participant) => (
+            {[...event.participants, ...(event.invitedUsers ?? [])].map((participant) => (
               <li key={participant.userId} className="rounded-2xl bg-white p-4 shadow-sm">
                 <div className="flex items-center justify-between gap-3">
                   <AvatarName displayName={participant.displayName} avatarIcon={participant.avatarIcon} />
@@ -925,11 +1080,9 @@ export default function EventDetailPage() {
                     );
                   })()}
                 </div>
-                {participant.role !== "owner" && (
+                {participant.role !== "owner" && participant.invitedBy && (
                   <p className="mt-2 text-xs text-[var(--muted)]">
-                    {participant.invitedBy
-                      ? `${participant.invitedBy.displayName}さんの招待`
-                      : "自分で参加登録"}
+                    {`${participant.invitedBy.displayName}さんの招待`}
                   </p>
                 )}
               </li>
@@ -1191,7 +1344,7 @@ export default function EventDetailPage() {
 
             <button
               onClick={handleInviteFriends}
-              disabled={selectedInviteeIds.length === 0}
+              disabled={selectedInviteeIds.length === 0 || !canAccessParticipantActions}
               className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
             >
               <span className="material-symbols-rounded">send</span>
@@ -1201,6 +1354,14 @@ export default function EventDetailPage() {
             </button>
           </div>
         </div>
+      )}
+
+      {isAuthOverlayOpen && (
+        <AuthOverlay
+          initialMode={authOverlayMode}
+          returnTo={returnToPath}
+          onClose={() => setIsAuthOverlayOpen(false)}
+        />
       )}
     </div>
   );

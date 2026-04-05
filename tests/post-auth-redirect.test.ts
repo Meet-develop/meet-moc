@@ -6,9 +6,9 @@ import {
 
 const cases = [
   {
-    name: "セッションがない場合はオンボーディングへ",
+    name: "セッションがない場合はログインへ",
     input: { hasSessionUserId: false, profileRequestOk: false, completionRate: 0 },
-    expected: "/onboarding",
+    expected: "/login",
   },
   {
     name: "プロフィール取得失敗時はセットアップへ",

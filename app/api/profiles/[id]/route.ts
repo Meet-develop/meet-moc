@@ -16,7 +16,6 @@ const calcProfileCompletion = (profile: {
 }) => {
   const checks = [
     profile.displayName.trim().length > 0,
-    Boolean(profile.avatarIcon),
     Boolean(profile.birthDate),
     Boolean(profile.playFrequency),
     Boolean(profile.drinkFrequency),
@@ -32,10 +31,34 @@ const calcProfileCompletion = (profile: {
 };
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
+  const { searchParams } = new URL(request.url);
+  const viewerId = searchParams.get("viewerId");
   const { id } = await params;
+
+  if (!viewerId) {
+    return NextResponse.json({ message: "viewerId is required" }, { status: 400 });
+  }
+
+  if (viewerId !== id) {
+    const relation = await prisma.friendship.findFirst({
+      where: {
+        status: "accepted",
+        OR: [
+          { userId: viewerId, friendId: id },
+          { userId: id, friendId: viewerId },
+        ],
+      },
+      select: { userId: true },
+    });
+
+    if (!relation) {
+      return NextResponse.json({ message: "Forbidden" }, { status: 403 });
+    }
+  }
+
   const profile = await prisma.profile.findUnique({
     where: { userId: id },
   });

@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { createAppNotifications } from "@/lib/notification-delivery";
 
 const formatConfirmedInfo = (
   startTime?: Date | null,
@@ -116,14 +117,18 @@ export async function POST(
         ? `「${event.purpose}」の開催情報が確定しました（${confirmedInfo}）。`
         : `「${event.purpose}」の確定情報が更新されました（${confirmedInfo}）。`;
 
-      await prisma.notification.createMany({
-        data: notifyUserIds.map((userId) => ({
+      await createAppNotifications(
+        notifyUserIds.map((userId) => ({
           userId,
           type: "event_confirmed",
+          title: shouldNotifyConfirmed
+            ? "開催情報が確定しました"
+            : "開催情報が更新されました",
+          body: message,
           message,
           eventId: event.id,
-        })),
-      });
+        }))
+      );
     }
   }
 

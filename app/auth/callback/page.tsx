@@ -3,14 +3,109 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { decidePostAuthRedirect } from "@/lib/auth/post-auth-redirect";
+import { markRecentAuth } from "@/lib/auth/recent-auth";
 
 type ProfileStats = {
   completionRate?: number;
 };
 
 type ProfileResponse = {
+  displayName?: string;
+  avatarIcon?: string | null;
+  birthDate?: string | null;
+  lineUserId?: string | null;
   stats?: ProfileStats;
+};
+
+const sanitizeReturnTo = (value: string | null) => {
+  if (!value) return undefined;
+  if (!value.startsWith("/")) return undefined;
+  if (value.startsWith("//")) return undefined;
+  return value;
+};
+
+const isEventDetailPath = (path: string) => /^\/events\/[^/?#]+$/.test(path);
+
+const buildLoginUrlWithError = (message: string, returnTo?: string) => {
+  const params = new URLSearchParams();
+  params.set("authError", message);
+  if (returnTo) {
+    params.set("returnTo", returnTo);
+  }
+  return `/login?${params.toString()}`;
+};
+
+const pickFirstString = (...candidates: unknown[]) => {
+  for (const candidate of candidates) {
+    if (typeof candidate === "string" && candidate.trim().length > 0) {
+      return candidate.trim();
+    }
+  }
+  return undefined;
+};
+
+const toBirthDate = (value: unknown) => {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(trimmed)) return undefined;
+  return trimmed;
+};
+
+const pickLineProfileDefaults = (user: {
+  email?: string | null;
+  user_metadata?: Record<string, unknown>;
+  identities?: Array<{ provider?: string; identity_data?: Record<string, unknown> }>;
+}) => {
+  const metadata = user.user_metadata ?? {};
+  const lineIdentity = user.identities?.find((identity) => identity.provider === "line");
+  const identityData = lineIdentity?.identity_data ?? {};
+
+  const displayName = pickFirstString(
+    metadata["display_name"],
+    metadata["name"],
+    metadata["full_name"],
+    identityData["display_name"],
+    identityData["name"],
+    user.email?.split("@")[0]
+  );
+  const avatarIcon = pickFirstString(
+    metadata["avatar_url"],
+    metadata["picture"],
+    metadata["profile_image"],
+    identityData["avatar_url"],
+    identityData["picture"],
+    identityData["profile_image"]
+  );
+  const birthDate = toBirthDate(
+    pickFirstString(
+      metadata["birthdate"],
+      metadata["birthday"],
+      identityData["birthdate"],
+      identityData["birthday"]
+    )
+  );
+
+  return {
+    displayName,
+    avatarIcon,
+    birthDate,
+  };
+};
+
+const pickLineUserId = (user: {
+  user_metadata?: Record<string, unknown>;
+  identities?: Array<{ provider?: string; identity_data?: Record<string, unknown> }>;
+}) => {
+  const metadata = user.user_metadata ?? {};
+  const lineIdentity = user.identities?.find((identity) => identity.provider === "line");
+  const identityData = lineIdentity?.identity_data ?? {};
+
+  return pickFirstString(
+    identityData["sub"],
+    identityData["userId"],
+    metadata["line_user_id"],
+    metadata["sub"]
+  );
 };
 
 export default function AuthCallbackPage() {
@@ -22,13 +117,25 @@ export default function AuthCallbackPage() {
     const resolveRedirect = async () => {
       const callbackUrl = new URL(window.location.href);
       const code = callbackUrl.searchParams.get("code");
+      const oauthError = callbackUrl.searchParams.get("error");
+      const oauthErrorDescription = callbackUrl.searchParams.get("error_description");
+      const returnTo = sanitizeReturnTo(callbackUrl.searchParams.get("returnTo"));
+      const eventReturnTo = returnTo && isEventDetailPath(returnTo) ? returnTo : undefined;
+
+      if (oauthError || oauthErrorDescription) {
+        if (active) {
+          const message = oauthErrorDescription ?? oauthError ?? "LINEログインに失敗しました。";
+          router.replace(buildLoginUrlWithError(message, returnTo));
+        }
+        return;
+      }
 
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code);
         if (error) {
           console.error("Supabase auth callback error:", error);
           if (active) {
-            router.replace("/onboarding");
+            router.replace(buildLoginUrlWithError(error.message, returnTo));
           }
           return;
         }
@@ -40,32 +147,94 @@ export default function AuthCallbackPage() {
 
       if (!session?.user?.id) {
         if (active) {
-          router.replace(decidePostAuthRedirect({ hasSessionUserId: false, profileRequestOk: false }));
+          router.replace(
+            buildLoginUrlWithError(
+              "認証セッションを確認できませんでした。SupabaseのLINE Provider設定とRedirect URLを確認してください。",
+              returnTo
+            )
+          );
         }
         return;
       }
 
-      const response = await fetch(`/api/profiles/${session.user.id}`, {
-        cache: "no-store",
+      const lineDefaults = pickLineProfileDefaults({
+        email: session.user.email,
+        user_metadata: session.user.user_metadata,
+        identities: session.user.identities,
       });
+      const lineUserId = pickLineUserId({
+        user_metadata: session.user.user_metadata,
+        identities: session.user.identities,
+      });
+
+      const response = await fetch(
+        `/api/profiles/${session.user.id}?viewerId=${encodeURIComponent(session.user.id)}`,
+        {
+          cache: "no-store",
+        }
+      );
 
       if (!active) {
         return;
       }
 
-      if (!response.ok) {
-        router.replace(
-          decidePostAuthRedirect({ hasSessionUserId: true, profileRequestOk: false })
+      const fallbackDisplayName =
+        lineDefaults.displayName ??
+        session.user.email?.split("@")[0] ??
+        `ユーザー${session.user.id.slice(0, 4)}`;
+
+      let profile: ProfileResponse | null = null;
+
+      if (response.ok) {
+        profile = (await response.json()) as ProfileResponse;
+      } else {
+        await fetch("/api/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: session.user.id,
+            displayName: fallbackDisplayName,
+            avatarIcon: lineDefaults.avatarIcon,
+            birthDate: lineDefaults.birthDate,
+            lineUserId,
+          }),
+        });
+
+        const refetchedProfile = await fetch(
+          `/api/profiles/${session.user.id}?viewerId=${encodeURIComponent(session.user.id)}`,
+          {
+            cache: "no-store",
+          }
         );
-        return;
+        if (refetchedProfile.ok) {
+          profile = (await refetchedProfile.json()) as ProfileResponse;
+        }
       }
 
-      const profile = (await response.json()) as ProfileResponse;
-      const redirectPath = decidePostAuthRedirect({
-        hasSessionUserId: true,
-        profileRequestOk: true,
-        completionRate: profile.stats?.completionRate ?? 0,
-      });
+      const needsLinePatch = Boolean(
+        profile &&
+          ((lineDefaults.displayName && (!profile.displayName || !profile.displayName.trim())) ||
+            (lineDefaults.avatarIcon && !profile.avatarIcon) ||
+            (lineDefaults.birthDate && !profile.birthDate) ||
+            (lineUserId && !profile.lineUserId))
+      );
+
+      if (profile && needsLinePatch && (lineDefaults.displayName || profile.displayName)) {
+        await fetch("/api/profiles", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            userId: session.user.id,
+            displayName: lineDefaults.displayName ?? profile.displayName,
+            avatarIcon: profile.avatarIcon ?? lineDefaults.avatarIcon,
+            birthDate: profile.birthDate ?? lineDefaults.birthDate,
+            lineUserId: profile.lineUserId ?? lineUserId,
+          }),
+        });
+      }
+
+      const redirectPath = eventReturnTo ?? "/profile/setup";
+      markRecentAuth();
       router.replace(redirectPath);
     };
 

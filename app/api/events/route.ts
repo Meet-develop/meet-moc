@@ -196,6 +196,35 @@ const getEventStartTime = (event: {
   return Number.isFinite(earliestTime) ? new Date(earliestTime) : null;
 };
 
+const calcProfileCompletion = (profile: {
+  displayName: string;
+  avatarIcon: string | null;
+  birthDate: Date | null;
+  playFrequency: string | null;
+  drinkFrequency: string | null;
+  budgetMin: number | null;
+  budgetMax: number | null;
+  ngFoods: string[];
+  favoriteAreas: string[];
+  favoritePlaces: string[];
+  availability: unknown;
+}) => {
+  const checks = [
+    profile.displayName.trim().length > 0,
+    Boolean(profile.birthDate),
+    Boolean(profile.playFrequency),
+    Boolean(profile.drinkFrequency),
+    profile.budgetMin != null || profile.budgetMax != null,
+    profile.ngFoods.length > 0,
+    profile.favoriteAreas.length > 0,
+    profile.favoritePlaces.length > 0,
+    Boolean(profile.availability),
+  ];
+
+  const done = checks.filter(Boolean).length;
+  return Math.round((done / checks.length) * 100);
+};
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const viewerId = searchParams.get("viewerId");
@@ -381,6 +410,7 @@ export async function POST(request: Request) {
   const body = (await request.json()) as {
     ownerId?: string;
     purpose?: string;
+    comment?: string;
     eventArea?: string;
     visibility?: "public" | "limited" | "private";
     capacity?: number;
@@ -450,6 +480,19 @@ export async function POST(request: Request) {
       },
     });
   }
+
+  const completionRate = calcProfileCompletion(ownerProfile);
+  if (completionRate < 100) {
+    return NextResponse.json(
+      {
+        message:
+          "プロフィール設定が100%未満のため、イベントを作成できません。プロフィールを更新してください。",
+        completionRate,
+      },
+      { status: 403 }
+    );
+  }
+
   const normalizedEventArea = body.eventArea?.trim();
   const resolvedEventArea =
     normalizedEventArea || ownerProfile?.favoriteAreas?.[0] || null;
@@ -462,6 +505,7 @@ export async function POST(request: Request) {
   const eventCreateData: {
     ownerId: string;
     purpose: string;
+    comment?: string | null;
     area?: string | null;
     visibility: "public" | "limited" | "private";
     capacity: number;
@@ -474,6 +518,7 @@ export async function POST(request: Request) {
   } = {
     ownerId: body.ownerId,
     purpose: body.purpose,
+    comment: body.comment?.trim() ? body.comment.trim() : null,
     visibility: body.visibility ?? "public",
     capacity: body.capacity,
     scheduleMode: resolvedScheduleMode,

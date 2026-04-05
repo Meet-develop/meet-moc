@@ -27,6 +27,45 @@ export async function POST(
     );
   }
 
+  const [event, participant] = await Promise.all([
+    prisma.event.findUnique({
+      where: { id },
+      select: {
+        status: true,
+        placeCandidates: {
+          include: { votes: true },
+        },
+      },
+    }),
+    prisma.eventParticipant.findUnique({
+      where: {
+        eventId_userId: {
+          eventId: id,
+          userId: body.userId,
+        },
+      },
+      select: { status: true },
+    }),
+  ]);
+
+  if (!event) {
+    return NextResponse.json({ message: "Not found" }, { status: 404 });
+  }
+
+  if (!participant || participant.status !== "approved") {
+    return NextResponse.json(
+      { message: "Only approved participants can add proposals" },
+      { status: 403 }
+    );
+  }
+
+  if (event.status !== "open") {
+    return NextResponse.json(
+      { message: "Only open events can receive proposals" },
+      { status: 400 }
+    );
+  }
+
   if (body.type === "time") {
     if (!body.startTime) {
       return NextResponse.json(
@@ -55,27 +94,6 @@ export async function POST(
   if (!body.place) {
     return NextResponse.json(
       { message: "place is required" },
-      { status: 400 }
-    );
-  }
-
-  const event = await prisma.event.findUnique({
-    where: { id },
-    select: {
-      status: true,
-      placeCandidates: {
-        include: { votes: true },
-      },
-    },
-  });
-
-  if (!event) {
-    return NextResponse.json({ message: "Not found" }, { status: 404 });
-  }
-
-  if (event.status !== "open") {
-    return NextResponse.json(
-      { message: "Only open events can receive proposals" },
       { status: 400 }
     );
   }

@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { getAvatarToneClass, isImageAvatar } from "@/components/ui/avatar-name";
 
 type Friend = {
   userId: string;
@@ -26,6 +27,42 @@ type PlaceResult = {
 
 type ProfileResponse = {
   favoriteAreas?: string[];
+  stats?: {
+    completionRate?: number;
+  };
+};
+
+type EventEditResponse = {
+  id: string;
+  purpose: string;
+  comment?: string | null;
+  area?: string | null;
+  visibility: "public" | "limited" | "private";
+  capacity: number;
+  fixedStartTime?: string | null;
+  fixedPlaceId?: string | null;
+  fixedPlaceName?: string | null;
+  fixedPlaceAddress?: string | null;
+  owner: {
+    userId: string;
+  };
+  placeCandidates: PlaceResult[];
+};
+
+type EventUpdateComparable = {
+  purpose: string;
+  comment: string;
+  eventArea: string;
+  visibility: "public" | "limited" | "private";
+  capacity: number;
+  timeSetting: "auto" | "manual";
+  placeSetting: "auto" | "manual";
+  fixedStartTime: string | null;
+  fixedPlace: {
+    placeId: string;
+    name: string;
+    address: string;
+  } | null;
 };
 
 type Step = 1 | 2 | 3 | 4 | 5 | 6;
@@ -41,7 +78,7 @@ const visibilityOptions: Array<{
 ];
 
 const purposeElementOptions = [
-  "飲み会",
+  "飲み",
   "ごはん",
   "カフェ",
   "カラオケ",
@@ -84,9 +121,63 @@ const normalizeArea = (area?: string | null) => {
   return area.trim().replace(/(駅|市|区|町|村)$/u, "");
 };
 
+const normalizeCapacity = (value: number) => {
+  if (!Number.isFinite(value)) return 2;
+  return Math.max(2, Math.floor(value));
+};
+
+const toDatetimeLocalValue = (dateLike?: string | null) => {
+  if (!dateLike) return "";
+  const date = new Date(dateLike);
+  if (Number.isNaN(date.getTime())) return "";
+
+  const pad = (value: number) => `${value}`.padStart(2, "0");
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  const hours = pad(date.getHours());
+  const minutes = pad(date.getMinutes());
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
+
+const toComparableText = (value?: string | null) => (value ?? "").trim();
+
+const serializeComparable = (value: EventUpdateComparable) => JSON.stringify(value);
+
+const buildComparableFromEvent = (event: EventEditResponse): EventUpdateComparable => {
+  const hasFixedStart = Boolean(event.fixedStartTime);
+  const hasFixedPlace = Boolean(
+    event.fixedPlaceId && event.fixedPlaceName && event.fixedPlaceAddress
+  );
+
+  return {
+    purpose: toComparableText(event.purpose),
+    comment: toComparableText(event.comment),
+    eventArea: toComparableText(event.area),
+    visibility: event.visibility,
+    capacity: normalizeCapacity(event.capacity),
+    timeSetting: hasFixedStart ? "manual" : "auto",
+    placeSetting: hasFixedPlace ? "manual" : "auto",
+    fixedStartTime: hasFixedStart ? toDatetimeLocalValue(event.fixedStartTime) : null,
+    fixedPlace: hasFixedPlace
+      ? {
+          placeId: toComparableText(event.fixedPlaceId),
+          name: toComparableText(event.fixedPlaceName),
+          address: toComparableText(event.fixedPlaceAddress),
+        }
+      : null,
+  };
+};
+
 export default function EventCreatePage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const editEventId = searchParams.get("editEventId");
+  const isEditMode = Boolean(editEventId);
   const [userId, setUserId] = useState<string | null>(null);
+  const [editingOwnerId, setEditingOwnerId] = useState<string | null>(null);
+  const [isEditLoading, setIsEditLoading] = useState(false);
+  const [initialEditComparable, setInitialEditComparable] = useState<string | null>(null);
 
   const [purposeElements, setPurposeElements] = useState<string[]>([]);
   const [customPurposeOptions, setCustomPurposeOptions] = useState<string[]>([]);
@@ -102,6 +193,7 @@ export default function EventCreatePage() {
   const [friends, setFriends] = useState<Friend[]>([]);
 
   const [profileFavoriteAreas, setProfileFavoriteAreas] = useState<string[]>([]);
+  const [profileCompletionRate, setProfileCompletionRate] = useState<number>(0);
   const [eventAreaOptions, setEventAreaOptions] = useState<string[]>([]);
   const [selectedEventArea, setSelectedEventArea] = useState("");
   const [areaQuery, setAreaQuery] = useState("");
@@ -115,6 +207,7 @@ export default function EventCreatePage() {
   const [fixedStart, setFixedStart] = useState("");
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
   const [candidatePlaces, setCandidatePlaces] = useState<PlaceResult[]>([]);
+  const [eventComment, setEventComment] = useState("");
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
@@ -126,7 +219,7 @@ export default function EventCreatePage() {
   const [friendStepDone, setFriendStepDone] = useState(false);
   const [inviteSearch, setInviteSearch] = useState("");
   const [activeStep, setActiveStep] = useState<Step>(1);
-  const [isFocusMode, setIsFocusMode] = useState(true);
+  const [isFocusMode, setIsFocusMode] = useState(() => !isEditMode);
 
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
 
@@ -144,20 +237,119 @@ export default function EventCreatePage() {
       setUserId(currentUserId);
 
       if (!currentUserId) return;
-      const profileResponse = await fetch(`/api/profiles/${currentUserId}`);
+      const profileResponse = await fetch(
+        `/api/profiles/${currentUserId}?viewerId=${encodeURIComponent(currentUserId)}`
+      );
       if (profileResponse.ok) {
         const profile = (await profileResponse.json()) as ProfileResponse;
         const areas = (profile.favoriteAreas ?? []).slice(0, 3);
         setProfileFavoriteAreas(areas);
+        setProfileCompletionRate(profile.stats?.completionRate ?? 0);
         setEventAreaOptions(areas);
         if (areas.length > 0) {
           setSelectedEventArea((prev) => prev || areas[0]);
         }
+      } else {
+        setProfileCompletionRate(0);
       }
     };
 
     load();
   }, []);
+
+  useEffect(() => {
+    if (!isEditMode || !editEventId || !userId) {
+      return;
+    }
+
+    let active = true;
+
+    const loadEventForEdit = async () => {
+      setIsEditLoading(true);
+      const response = await fetch(
+        `/api/events/${editEventId}?viewerId=${encodeURIComponent(userId)}`,
+        { cache: "no-store" }
+      );
+
+      if (!response.ok) {
+        if (active) {
+          setSubmitMessage("編集対象のイベント情報を読み込めませんでした。");
+          setIsEditLoading(false);
+        }
+        return;
+      }
+
+      const event = (await response.json()) as EventEditResponse;
+      if (!active) return;
+
+      setEditingOwnerId(event.owner.userId);
+
+      if (event.owner.userId !== userId) {
+        setSubmitMessage("このイベントはオーナーのみ編集できます。");
+        setIsEditLoading(false);
+        return;
+      }
+
+      setPurposeElements([event.purpose]);
+      if (!purposeElementOptions.includes(event.purpose)) {
+        setCustomPurposeOptions((prev) =>
+          prev.includes(event.purpose) ? prev : [event.purpose, ...prev]
+        );
+      }
+
+      setEventTitleInput(event.purpose);
+      setIsTitleCustomized(true);
+      setVisibility(event.visibility);
+      setVisibilityTouched(true);
+      setCapacity(normalizeCapacity(event.capacity));
+      setCapacityTouched(true);
+
+      const area = event.area?.trim() ?? "";
+      if (area) {
+        setEventAreaOptions((prev) => (prev.includes(area) ? prev : [area, ...prev]));
+      }
+      setSelectedEventArea(area);
+      setAreaStepDone(Boolean(area));
+      setFriendStepDone(true);
+      setActiveStep(6);
+      setIsFocusMode(false);
+
+      const fixedStart = toDatetimeLocalValue(event.fixedStartTime);
+      if (fixedStart) {
+        setTimeSetting("manual");
+        setFixedStart(fixedStart);
+      } else {
+        setTimeSetting("auto");
+        setFixedStart("");
+      }
+
+      if (event.fixedPlaceName && event.fixedPlaceAddress && event.fixedPlaceId) {
+        setPlaceSetting("manual");
+        setSelectedPlace({
+          placeId: event.fixedPlaceId,
+          name: event.fixedPlaceName,
+          address: event.fixedPlaceAddress,
+          lat: 0,
+          lng: 0,
+        });
+      } else {
+        setPlaceSetting("auto");
+        setSelectedPlace(null);
+      }
+
+      setCandidatePlaces(event.placeCandidates ?? []);
+      setEventComment(event.comment?.trim() ?? "");
+      setInitialEditComparable(serializeComparable(buildComparableFromEvent(event)));
+      setSubmitMessage(null);
+      setIsEditLoading(false);
+    };
+
+    loadEventForEdit();
+
+    return () => {
+      active = false;
+    };
+  }, [editEventId, isEditMode, userId]);
 
   useEffect(() => {
     if (!userId) {
@@ -205,9 +397,42 @@ export default function EventCreatePage() {
   const isPlaceManualValid = placeSetting === "manual" ? Boolean(selectedPlace) : true;
   const derivedScheduleMode: "fixed" | "candidate" =
     timeSetting === "manual" && placeSetting === "manual" ? "fixed" : "candidate";
+  const isProfileComplete = profileCompletionRate >= 100;
+
+  const currentEditComparable = useMemo<EventUpdateComparable>(
+    () => ({
+      purpose: resolvedTitle,
+      comment: toComparableText(eventComment),
+      eventArea: toComparableText(selectedEventArea),
+      visibility,
+      capacity: normalizeCapacity(capacity),
+      timeSetting,
+      placeSetting,
+      fixedStartTime: timeSetting === "manual" ? fixedStart : null,
+      fixedPlace:
+        placeSetting === "manual" && selectedPlace
+          ? {
+              placeId: toComparableText(selectedPlace.placeId),
+              name: toComparableText(selectedPlace.name),
+              address: toComparableText(selectedPlace.address),
+            }
+          : null,
+    }),
+    [capacity, eventComment, fixedStart, placeSetting, resolvedTitle, selectedEventArea, selectedPlace, timeSetting, visibility]
+  );
+
+  const hasEditChanges = useMemo(() => {
+    if (!isEditMode) return true;
+    if (!initialEditComparable) return false;
+    return serializeComparable(currentEditComparable) !== initialEditComparable;
+  }, [currentEditComparable, initialEditComparable, isEditMode]);
 
   const isCreateDisabled =
     !userId ||
+    isEditLoading ||
+    (isEditMode && editingOwnerId != null && editingOwnerId !== userId) ||
+    (isEditMode && !hasEditChanges) ||
+    !isProfileComplete ||
     purposeElements.length === 0 ||
     !resolvedTitle ||
     !visibilityTouched ||
@@ -302,7 +527,7 @@ export default function EventCreatePage() {
   };
 
   const handleCapacityChange = (value: number) => {
-    setCapacity(value);
+    setCapacity(normalizeCapacity(value));
     setCapacityTouched(true);
   };
 
@@ -412,41 +637,68 @@ export default function EventCreatePage() {
   const handleSubmit = async () => {
     if (isCreateDisabled) return;
 
-    setSubmitMessage(null);
-    const response = await fetch("/api/events", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ownerId: userId,
-        purpose: resolvedTitle,
-        visibility,
-        capacity,
-        scheduleMode: derivedScheduleMode,
-        timeSetting,
-        placeSetting,
-        fixedStartTime: timeSetting === "manual" ? fixedStart : undefined,
-        fixedPlace:
-          placeSetting === "manual" && selectedPlace
-            ? {
-                placeId: selectedPlace.placeId,
-                name: selectedPlace.name,
-                address: selectedPlace.address,
-              }
-            : undefined,
-        eventArea: selectedEventArea,
-        placeQuery: placeSetting === "auto" && placeQuery.trim() ? placeQuery : undefined,
-        candidatePlaces: placeSetting === "auto" ? candidatePlaces : undefined,
-        inviteeIds: selectedInvites,
-      }),
-    });
-
-    if (!response.ok) {
-      setSubmitMessage("イベントの作成に失敗しました。設定内容をご確認ください。");
+    if (isEditMode && !hasEditChanges) {
+      setSubmitMessage("変更がないため更新できません。");
       return;
     }
 
-    const data = (await response.json()) as { id: string };
-    router.push(`/events/${data.id}/manage`);
+    if (!isProfileComplete) {
+      setSubmitMessage("プロフィール設定が100%未満のため、イベントを作成できません。");
+      return;
+    }
+
+    setSubmitMessage(null);
+    const requestBody = {
+      ownerId: userId,
+      purpose: resolvedTitle,
+      comment: eventComment,
+      visibility,
+      capacity,
+      scheduleMode: derivedScheduleMode,
+      timeSetting,
+      placeSetting,
+      fixedStartTime: timeSetting === "manual" ? fixedStart : undefined,
+      fixedPlace:
+        placeSetting === "manual" && selectedPlace
+          ? {
+              placeId: selectedPlace.placeId,
+              name: selectedPlace.name,
+              address: selectedPlace.address,
+            }
+          : undefined,
+      eventArea: selectedEventArea,
+      placeQuery: placeSetting === "auto" && placeQuery.trim() ? placeQuery : undefined,
+      candidatePlaces: placeSetting === "auto" ? candidatePlaces : undefined,
+      inviteeIds: selectedInvites,
+    };
+
+    const response = await fetch(isEditMode && editEventId ? `/api/events/${editEventId}` : "/api/events", {
+      method: isEditMode && editEventId ? "PATCH" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const error = (await response.json().catch(() => null)) as
+        | { message?: string }
+        | null;
+      setSubmitMessage(
+        error?.message ?? "イベントの作成に失敗しました。設定内容をご確認ください。"
+      );
+      return;
+    }
+
+    const data = (await response.json()) as { id?: string; eventId?: string };
+    const nextEventId = isEditMode ? editEventId : data.id;
+
+    if (nextEventId) {
+      router.push(`/events/${nextEventId}`);
+      return;
+    }
+
+    if (data.eventId) {
+      router.push(`/events/${data.eventId}`);
+    }
   };
 
   return (
@@ -460,17 +712,23 @@ export default function EventCreatePage() {
           >
             <span className="material-symbols-rounded">chevron_left</span>
           </Link>
-          <h1 className="text-lg font-semibold">イベント作成</h1>
+          <h1 className="text-lg font-semibold">{isEditMode ? "イベント編集" : "イベント作成"}</h1>
         </div>
       </header>
 
       <main className="mx-auto max-w-md px-4 py-6 sm:max-w-4xl sm:px-6 sm:py-10">
-        {!userId && (
-          <div className="mb-6 rounded-3xl bg-white/80 p-5 text-sm text-[var(--muted)] shadow-sm">
-            イベント作成にはログインが必要です。
-            <Link href="/onboarding" className="ml-2 text-[var(--accent)]">
-              ログインはこちら
+        {userId && !isProfileComplete && (
+          <div className="mb-6 rounded-3xl border border-amber-200 bg-amber-50 p-5 text-sm text-amber-800 shadow-sm">
+            プロフィール設定が {profileCompletionRate}% のため、イベント作成はできません。
+            <Link href="/profile/setup" className="ml-2 font-semibold text-[var(--accent)]">
+              プロフィールを更新する
             </Link>
+          </div>
+        )}
+
+        {isEditMode && isEditLoading && (
+          <div className="mb-6 rounded-3xl bg-white p-4 text-sm text-[var(--muted)] shadow-sm">
+            イベント情報を読み込み中です...
           </div>
         )}
 
@@ -484,7 +742,7 @@ export default function EventCreatePage() {
             />
           )}
 
-          <h1 className="text-2xl font-semibold">イベントをつくる</h1>
+          <h1 className="text-2xl font-semibold">{isEditMode ? "イベントを編集" : "イベントをつくる"}</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">{helperText}</p>
 
           <div className="mt-6 space-y-5">
@@ -636,16 +894,32 @@ export default function EventCreatePage() {
                 <p className="mt-1 text-xs text-[var(--accent)]">続けて人数を決めてください。</p>
                 <label className="mt-3 block text-sm">
                   上限人数: <span className="font-semibold text-[var(--accent)]">{capacity} 人</span>
-                  <input
-                    type="range"
-                    min={2}
-                    max={20}
-                    step={1}
-                    value={capacity}
-                    onChange={(event) => handleCapacityChange(Number(event.target.value))}
-                    className="mt-2 w-full accent-[var(--accent)]"
-                  />
                 </label>
+                <div className="mt-2 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
+                  <div>
+                    <p className="text-[11px] text-[var(--muted)]">クイック設定（2〜20人）</p>
+                    <input
+                      type="range"
+                      min={2}
+                      max={20}
+                      step={1}
+                      value={Math.min(capacity, 20)}
+                      onChange={(event) => handleCapacityChange(Number(event.target.value))}
+                      className="mt-2 w-full accent-[var(--accent)]"
+                    />
+                  </div>
+                  <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--muted)] sm:w-36">
+                    任意入力
+                    <input
+                      type="number"
+                      min={2}
+                      step={1}
+                      value={capacity}
+                      onChange={(event) => handleCapacityChange(Number(event.target.value))}
+                      className="rounded-2xl bg-white px-3 py-2 text-sm text-[var(--foreground)] shadow-sm"
+                    />
+                  </label>
+                </div>
 
                 {isFocusMode && (
                   <button
@@ -774,12 +1048,33 @@ export default function EventCreatePage() {
                         }`}
                       >
                         <div className="min-w-0 flex items-center gap-3">
-                          <span
-                            aria-hidden="true"
-                            className="grid h-9 w-9 place-items-center rounded-full border border-orange-100 bg-[#f7f4ef]/80 text-sm"
-                          >
-                            {friend.avatarIcon ?? friend.displayName.trim().charAt(0) ?? "?"}
-                          </span>
+                          {(() => {
+                            const avatar = friend.avatarIcon?.trim() ?? "";
+                            const useImage = isImageAvatar(avatar);
+                            const toneClass = getAvatarToneClass(friend.displayName.trim() || "user");
+
+                            return (
+                              <span
+                                aria-hidden="true"
+                                className={`grid h-9 w-9 place-items-center overflow-hidden rounded-full border border-orange-100 text-sm ${
+                                  useImage || avatar ? "bg-[#f7f4ef]/80" : toneClass
+                                }`}
+                              >
+                                {useImage ? (
+                                  // eslint-disable-next-line @next/next/no-img-element
+                                  <img
+                                    src={avatar}
+                                    alt=""
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : avatar ? (
+                                  avatar
+                                ) : (
+                                  <span className="material-symbols-rounded text-base">person</span>
+                                )}
+                              </span>
+                            );
+                          })()}
                           <div className="min-w-0">
                             <p className="truncate text-sm font-semibold text-[var(--foreground)]">{friend.displayName}</p>
                             <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -830,15 +1125,17 @@ export default function EventCreatePage() {
 
             {(!isFocusMode || friendStepDone) && (
               <div ref={submitSectionRef} className={toStepClass(6)}>
-                <h2 className="text-sm font-semibold text-[var(--accent)]">作成ボタン</h2>
-                <p className="mt-1 text-xs text-[var(--accent)]">内容を確認してイベントを作成してください。</p>
+                <h2 className="text-sm font-semibold text-[var(--accent)]">{isEditMode ? "更新ボタン" : "作成ボタン"}</h2>
+                <p className="mt-1 text-xs text-[var(--accent)]">
+                  {isEditMode ? "内容を確認してイベントを更新してください。" : "内容を確認してイベントを作成してください。"}
+                </p>
                 <button
                   onClick={handleSubmit}
                   disabled={isCreateDisabled}
                   className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-200 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <span className="material-symbols-rounded">rocket_launch</span>
-                  作成する
+                  {isEditMode ? "更新する" : "作成する"}
                 </button>
               </div>
             )}
@@ -849,6 +1146,16 @@ export default function EventCreatePage() {
                 <p className="mt-1 text-xs text-[var(--muted)]">
                   日程・場所を手動設定したい場合のみ選択してください。
                 </p>
+
+                <label className="mt-4 block text-sm">
+                  <span className="font-semibold text-[var(--foreground)]">コメント（任意）</span>
+                  <textarea
+                    value={eventComment}
+                    onChange={(event) => setEventComment(event.target.value)}
+                    placeholder="集合時の注意点や補足があれば入力"
+                    className="mt-2 h-24 w-full rounded-2xl bg-white px-4 py-3 text-sm shadow-sm"
+                  />
+                </label>
 
                 <div className="mt-4">
                   <p className="mb-2 text-sm font-medium">日程の設定</p>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
+import { getAvatarToneClass, isImageAvatar } from "@/components/ui/avatar-name";
 type Friend = {
   userId: string;
   displayName: string;
@@ -86,14 +87,6 @@ export default function FriendsPage() {
       </header>
 
       <main className="mx-auto max-w-md px-4 py-8 sm:max-w-4xl sm:px-6 sm:py-10">
-        {!userId && (
-          <div className="mb-6 rounded-3xl bg-white/80 p-4 text-sm text-[var(--muted)] shadow-sm">
-            フレンド一覧を表示するにはログインが必要です。
-            <Link href="/onboarding" className="ml-2 text-[var(--accent)]">
-              ログインはこちら
-            </Link>
-          </div>
-        )}
         <section>
           <div className="mb-4">
             <input
@@ -123,12 +116,33 @@ export default function FriendsPage() {
                 >
                   <Link href={`/profile/${friend.userId}`} className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-3">
-                      <span
-                        aria-hidden="true"
-                        className="grid h-10 w-10 place-items-center rounded-full border border-orange-100 bg-[#f7f4ef]/80 text-base"
-                      >
-                        {friend.avatarIcon ?? friend.displayName.trim().charAt(0) ?? "?"}
-                      </span>
+                      {(() => {
+                        const avatar = friend.avatarIcon?.trim() ?? "";
+                        const useImage = isImageAvatar(avatar);
+                        const toneClass = getAvatarToneClass(friend.displayName.trim() || "user");
+
+                        return (
+                          <span
+                            aria-hidden="true"
+                            className={`grid h-10 w-10 place-items-center overflow-hidden rounded-full border border-orange-100 text-base ${
+                              useImage || avatar ? "bg-[#f7f4ef]/80" : toneClass
+                            }`}
+                          >
+                            {useImage ? (
+                              // eslint-disable-next-line @next/next/no-img-element
+                              <img
+                                src={avatar}
+                                alt=""
+                                className="h-full w-full object-cover"
+                              />
+                            ) : avatar ? (
+                              avatar
+                            ) : (
+                              <span className="material-symbols-rounded">person</span>
+                            )}
+                          </span>
+                        );
+                      })()}
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold text-[var(--foreground)]">
                           {friend.displayName}

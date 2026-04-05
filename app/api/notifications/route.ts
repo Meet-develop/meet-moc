@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { toNotificationView } from "@/lib/notification-content";
+import { createAppNotifications } from "@/lib/notification-delivery";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -47,23 +49,27 @@ export async function GET(request: Request) {
       select: { id: true, purpose: true },
     });
 
-    await prisma.notification.createMany({
-      data: [
-        {
-          userId,
-          type: "friend_added",
-          message: "フレンド候補が見つかりました。プロフィールから確認できます。",
-        },
-        {
-          userId,
-          type: "invite_received",
-          message: recentEvent
-            ? `「${recentEvent.purpose}」への参加を検討してみましょう。`
-            : "新しいイベントの招待を受け取れる状態になりました。",
-          eventId: recentEvent?.id,
-        },
-      ],
-    });
+    await createAppNotifications([
+      {
+        userId,
+        type: "friend_added",
+        title: "プロフィール登録のお願い",
+        body: "プロフィールを登録すると、イベント作成やマッチングがスムーズになります。",
+        message: "フレンド候補が見つかりました。プロフィールから確認できます。",
+      },
+      {
+        userId,
+        type: "invite_received",
+        title: "イベント招待",
+        body: recentEvent
+          ? `「${recentEvent.purpose}」への参加を検討してみましょう。`
+          : "新しいイベントの招待を受け取れる状態になりました。",
+        message: recentEvent
+          ? `「${recentEvent.purpose}」への参加を検討してみましょう。`
+          : "新しいイベントの招待を受け取れる状態になりました。",
+        eventId: recentEvent?.id,
+      },
+    ]);
 
     notifications = await prisma.notification.findMany({
       where,
@@ -71,5 +77,5 @@ export async function GET(request: Request) {
     });
   }
 
-  return NextResponse.json(notifications);
+  return NextResponse.json(notifications.map(toNotificationView));
 }

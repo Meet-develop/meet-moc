@@ -23,6 +23,20 @@ type EventDetail = {
     role: string;
     invitedBy?: { userId: string; displayName: string; avatarIcon?: string | null } | null;
   }[];
+  inviteRequests: {
+    id: string;
+    requester: {
+      userId: string;
+      displayName: string;
+      avatarIcon?: string | null;
+    };
+    invitee: {
+      userId: string;
+      displayName: string;
+      avatarIcon?: string | null;
+    };
+    createdAt: string;
+  }[];
   timeCandidates: { id: string; startTime: string; endTime: string; score: number }[];
   placeCandidates: { id: string; placeId: string; name: string; address: string; score: number }[];
 };
@@ -107,6 +121,33 @@ export default function EventManagePage() {
     [event]
   );
 
+  const requestCards = useMemo(() => {
+    if (!event) return [];
+
+    const participantCards = pendingParticipants.map((participant) => ({
+      key: `join-${participant.userId}`,
+      type: "join" as const,
+      displayName: participant.displayName,
+      avatarIcon: participant.avatarIcon,
+      hint: participant.invitedBy
+        ? `${participant.invitedBy.displayName}さんからの招待`
+        : "参加リクエスト",
+      userId: participant.userId,
+    }));
+
+    const inviteCards = (event.inviteRequests ?? []).map((request) => ({
+      key: `invite-${request.id}`,
+      type: "invite" as const,
+      displayName: request.invitee.displayName,
+      avatarIcon: request.invitee.avatarIcon,
+      hint: `${request.requester.displayName}さんからの招待`,
+      requesterId: request.requester.userId,
+      inviteeId: request.invitee.userId,
+    }));
+
+    return [...participantCards, ...inviteCards];
+  }, [event, pendingParticipants]);
+
   const requiresTimeSelection = (event?.timeCandidates.length ?? 0) > 0;
   const requiresPlaceSelection = (event?.placeCandidates.length ?? 0) > 0;
 
@@ -117,6 +158,32 @@ export default function EventManagePage() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ownerId, userId }),
     });
+    refreshEvent();
+  };
+
+  const handleDecline = async (userId: string) => {
+    if (!ownerId) return;
+    await fetch(`/api/events/${eventId}/decline`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerId, userId }),
+    });
+    refreshEvent();
+  };
+
+  const handleInviteRequestDecision = async (
+    requesterId: string,
+    inviteeId: string,
+    decision: "approve" | "decline"
+  ) => {
+    if (!ownerId) return;
+
+    await fetch(`/api/events/${eventId}/invite-requests`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerId, requesterId, inviteeId, decision }),
+    });
+
     refreshEvent();
   };
 
@@ -189,21 +256,51 @@ export default function EventManagePage() {
           <span className="font-semibold text-[var(--accent)]">エリア:</span> {event.area ?? "未設定"}
         </div>
         <section>
-          <h2 className="text-lg font-semibold">参加リクエスト</h2>
-          {pendingParticipants.length === 0 ? (
+          <h2 className="text-lg font-semibold">招待・参加リクエスト</h2>
+          {requestCards.length === 0 ? (
             <p className="mt-4 text-sm text-[var(--muted)]">承認待ちはありません。</p>
           ) : (
             <ul className="mt-4 space-y-3">
-              {pendingParticipants.map((participant) => (
-                <li key={participant.userId} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <AvatarName displayName={participant.displayName} avatarIcon={participant.avatarIcon} />
-                  <button
-                    onClick={() => handleApprove(participant.userId)}
-                    className="flex w-full items-center justify-center gap-1 rounded-full bg-[var(--accent)] px-3 py-2 text-xs font-semibold text-white sm:w-auto sm:py-1"
-                  >
-                    <span className="material-symbols-rounded">check_circle</span>
-                    承認
-                  </button>
+              {requestCards.map((card) => (
+                <li key={card.key} className="rounded-2xl bg-white p-4 shadow-sm">
+                  <div className="flex items-center gap-3">
+                    <div className="min-w-0 flex-1">
+                      <AvatarName displayName={card.displayName} avatarIcon={card.avatarIcon} />
+                      <p className="mt-2 text-xs text-[var(--muted)]">{card.hint}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      <button
+                        onClick={() =>
+                          card.type === "join"
+                            ? handleApprove(card.userId)
+                            : handleInviteRequestDecision(
+                                card.requesterId,
+                                card.inviteeId,
+                                "approve"
+                              )
+                        }
+                        className="grid h-9 w-9 place-items-center rounded-full bg-emerald-100 text-emerald-700"
+                        aria-label="承認"
+                      >
+                        <span className="material-symbols-rounded text-base">check</span>
+                      </button>
+                      <button
+                        onClick={() =>
+                          card.type === "join"
+                            ? handleDecline(card.userId)
+                            : handleInviteRequestDecision(
+                                card.requesterId,
+                                card.inviteeId,
+                                "decline"
+                              )
+                        }
+                        className="grid h-9 w-9 place-items-center rounded-full bg-rose-100 text-rose-700"
+                        aria-label="非承認"
+                      >
+                        <span className="material-symbols-rounded text-base">close</span>
+                      </button>
+                    </div>
+                  </div>
                 </li>
               ))}
             </ul>
@@ -297,6 +394,13 @@ export default function EventManagePage() {
             <span className="material-symbols-rounded">verified</span>
             {event.status === "confirmed" ? "確定情報を更新" : "最終確定"}
           </button>
+          <Link
+            href={`/events/new?editEventId=${event.id}`}
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-[var(--line)] bg-white px-6 py-3 text-sm font-semibold text-[var(--foreground)]"
+          >
+            <span className="material-symbols-rounded">edit</span>
+            編集する
+          </Link>
         </div>
 
         <section className="mt-8 pt-6">
