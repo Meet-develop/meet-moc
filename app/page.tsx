@@ -129,14 +129,16 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen">
-      <header className="sticky top-0 z-40 border-b border-orange-100 bg-[#fdf7ef]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-md flex-col gap-1 px-4 py-4 sm:max-w-6xl sm:px-6">
-          <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-[#ae8a62]">
-              Meet & Moc
-            </p>
-            <h1 className="text-2xl font-semibold">イベントフィード</h1>
-          </div>
+      <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
+        <div className="mx-auto flex max-w-md items-center justify-between gap-3 px-4 py-4 sm:max-w-6xl sm:px-6">
+          <h1 className="text-lg font-semibold">イベントフィード</h1>
+          <Link
+            href="/events/history"
+            aria-label="参加履歴を見る"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+          >
+            <span className="material-symbols-rounded">history</span>
+          </Link>
         </div>
       </header>
 

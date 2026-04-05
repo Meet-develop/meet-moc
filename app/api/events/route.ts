@@ -183,9 +183,25 @@ const buildPlaceCandidatesFromFavoriteAreas = async (
   return Array.from(uniqueByPlaceId.values()).slice(0, 3);
 };
 
+const getEventStartTime = (event: {
+  fixedStartTime: Date | null;
+  timeCandidates: { startTime: Date }[];
+}) => {
+  if (event.fixedStartTime) return event.fixedStartTime;
+  if (event.timeCandidates.length === 0) return null;
+
+  const earliestTime = Math.min(
+    ...event.timeCandidates.map((candidate) => candidate.startTime.getTime())
+  );
+  return Number.isFinite(earliestTime) ? new Date(earliestTime) : null;
+};
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const viewerId = searchParams.get("viewerId");
+  const includePast =
+    searchParams.get("includePast") === "1" ||
+    searchParams.get("includePast") === "true";
 
   const events = await prisma.event.findMany({
     include: {
@@ -255,6 +271,7 @@ export async function GET(request: Request) {
           address: candidate.address,
           score: candidate.score,
         }));
+      const startTime = getEventStartTime(event);
 
       return {
         id: event.id,
@@ -264,15 +281,21 @@ export async function GET(request: Request) {
         capacity: event.capacity,
         status: event.status,
         scheduleMode: event.scheduleMode,
+        startTime,
         fixedStartTime: event.fixedStartTime,
         fixedEndTime: event.fixedEndTime,
+        fixedPlaceId: event.fixedPlaceId,
         fixedPlaceName: event.fixedPlaceName,
+        fixedPlaceAddress: event.fixedPlaceAddress,
         owner: {
           userId: event.owner.userId,
           displayName: event.owner.displayName,
           avatarIcon: event.owner.avatarIcon,
         },
         approvedCount,
+        participantUserIds: event.participants
+          .filter((participant) => participant.status === "approved")
+          .map((participant) => participant.userId),
         timeCandidates,
         placeCandidates,
         isFavoriteOwner: viewerId ? favoriteOwnerIds.has(event.ownerId) : false,
@@ -290,9 +313,43 @@ export async function GET(request: Request) {
       return 0;
     });
 
-  const participating = formatted.filter((event) => event.viewerRelation === "participating");
-  const invited = formatted.filter((event) => event.viewerRelation === "invited");
-  const publicEvents = formatted.filter((event) => event.viewerRelation === "public");
+  const now = Date.now();
+
+  if (includePast) {
+    const history = formatted
+      .filter(
+        (event) =>
+          event.viewerRelation === "participating" &&
+          event.status !== "cancelled" &&
+          event.startTime != null &&
+          new Date(event.startTime).getTime() <= now
+      )
+      .sort(
+        (a, b) =>
+          new Date(b.startTime as Date).getTime() -
+          new Date(a.startTime as Date).getTime()
+      );
+
+    return NextResponse.json(
+      {
+        history,
+      },
+      {
+        headers: {
+          "Cache-Control": "no-store, max-age=0",
+        },
+      }
+    );
+  }
+
+  const upcoming = formatted.filter(
+    (event) =>
+      event.startTime == null || new Date(event.startTime).getTime() > now
+  );
+
+  const participating = upcoming.filter((event) => event.viewerRelation === "participating");
+  const invited = upcoming.filter((event) => event.viewerRelation === "invited");
+  const publicEvents = upcoming.filter((event) => event.viewerRelation === "public");
 
   return NextResponse.json(
     {
@@ -427,7 +484,8 @@ export async function POST(request: Request) {
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("Unknown argument `area`")) {
-      const { area: _ignoredArea, ...fallbackData } = eventCreateData;
+      const fallbackData = { ...eventCreateData };
+      delete fallbackData.area;
       event = await prisma.event.create({
         data: fallbackData,
       });

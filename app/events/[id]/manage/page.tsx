@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { AvatarName } from "@/components/ui/avatar-name";
 
@@ -15,7 +15,14 @@ type EventDetail = {
   fixedPlaceId?: string | null;
   fixedPlaceName?: string | null;
   owner: { userId: string; displayName: string; avatarIcon?: string | null };
-  participants: { userId: string; displayName: string; avatarIcon?: string | null; status: string; role: string }[];
+  participants: {
+    userId: string;
+    displayName: string;
+    avatarIcon?: string | null;
+    status: string;
+    role: string;
+    invitedBy?: { userId: string; displayName: string; avatarIcon?: string | null } | null;
+  }[];
   timeCandidates: { id: string; startTime: string; endTime: string; score: number }[];
   placeCandidates: { id: string; placeId: string; name: string; address: string; score: number }[];
 };
@@ -33,11 +40,14 @@ const formatStart = (start: string) => {
 
 export default function EventManagePage() {
   const params = useParams();
+  const router = useRouter();
   const eventId = params.id as string;
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [ownerId, setOwnerId] = useState<string | null>(null);
   const [timeCandidateId, setTimeCandidateId] = useState<string | null>(null);
   const [placeCandidateId, setPlaceCandidateId] = useState<string | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const applyEventState = (data: EventDetail) => {
     setEvent(data);
@@ -118,6 +128,32 @@ export default function EventManagePage() {
       body: JSON.stringify({ ownerId, timeCandidateId, placeCandidateId }),
     });
     refreshEvent();
+  };
+
+  const handleDeleteEvent = async () => {
+    if (!ownerId || !event) return;
+    if (event.owner.userId !== ownerId) return;
+
+    const confirmed = window.confirm("このイベントを削除します。よろしいですか？");
+    if (!confirmed) return;
+
+    setDeleteError(null);
+    setIsDeleting(true);
+
+    const response = await fetch(`/api/events/${eventId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ownerId }),
+    });
+
+    setIsDeleting(false);
+
+    if (!response.ok) {
+      setDeleteError("イベントの削除に失敗しました。時間をおいて再度お試しください。");
+      return;
+    }
+
+    router.replace("/");
   };
 
   if (!event) {
@@ -262,6 +298,26 @@ export default function EventManagePage() {
             {event.status === "confirmed" ? "確定情報を更新" : "最終確定"}
           </button>
         </div>
+
+        <section className="mt-8 pt-6">
+          <h2 className="text-lg font-semibold">イベント削除</h2>
+          <p className="mt-1 text-sm text-[var(--muted)]">
+            イベントを削除すると、参加予定メンバーに通知され、イベント情報は復元できません。
+          </p>
+          {deleteError && <p className="mt-2 text-xs font-semibold text-rose-700">{deleteError}</p>}
+          <button
+            onClick={handleDeleteEvent}
+            disabled={
+              isDeleting ||
+              !ownerId ||
+              event.owner.userId !== ownerId
+            }
+            className="mt-3 flex w-full items-center justify-center gap-2 rounded-full border border-rose-300 px-6 py-3 text-sm font-semibold text-rose-600 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <span className="material-symbols-rounded">delete</span>
+            {isDeleting ? "削除中..." : "イベントを削除"}
+          </button>
+        </section>
       </main>
     </div>
   );

@@ -120,8 +120,8 @@ export default function EventCreatePage() {
   const [isSearching, setIsSearching] = useState(false);
   const [searchMessage, setSearchMessage] = useState<string | null>(null);
 
-  const [visibilityTouched, setVisibilityTouched] = useState(false);
-  const [capacityTouched, setCapacityTouched] = useState(false);
+  const [visibilityTouched, setVisibilityTouched] = useState(true);
+  const [capacityTouched, setCapacityTouched] = useState(true);
   const [areaStepDone, setAreaStepDone] = useState(false);
   const [friendStepDone, setFriendStepDone] = useState(false);
   const [inviteSearch, setInviteSearch] = useState("");
@@ -213,8 +213,7 @@ export default function EventCreatePage() {
     !visibilityTouched ||
     !capacityTouched ||
     !selectedEventArea ||
-    !areaStepDone ||
-    !friendStepDone ||
+    (isFocusMode && (!areaStepDone || !friendStepDone)) ||
     !isTimeManualValid ||
     !isPlaceManualValid;
 
@@ -476,7 +475,7 @@ export default function EventCreatePage() {
         )}
 
         <div className="relative pt-2">
-          {isFocusMode && activeStep < 6 && (
+          {isFocusMode && (
             <button
               type="button"
               aria-label="フォーカスモードを解除"
@@ -487,32 +486,13 @@ export default function EventCreatePage() {
 
           <h1 className="text-2xl font-semibold">イベントをつくる</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">{helperText}</p>
-          <div className="mt-3">
-            {isFocusMode ? (
-              <button
-                onClick={() => setIsFocusMode(false)}
-                className="rounded-full border border-orange-200 bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)]"
-              >
-                フォーカスモードを解除
-              </button>
-            ) : (
-              <button
-                onClick={() => {
-                  setIsFocusMode(true);
-                  setActiveStep(1);
-                  setTimeout(() => scrollToCenter(purposeSectionRef.current), 120);
-                }}
-                className="rounded-full border border-orange-200 bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)]"
-              >
-                フォーカスモードを再開
-              </button>
-            )}
-          </div>
 
           <div className="mt-6 space-y-5">
             <section ref={purposeSectionRef} className={toStepClass(1)}>
               <div className="flex items-center gap-2">
-                <h2 className="text-sm font-semibold text-[var(--accent)]">イベントの目的</h2>
+                <h2 className="text-sm font-semibold text-[var(--accent)]">
+                  イベントの目的<span className="ml-1 text-rose-500">*</span>
+                </h2>
                 <button
                   onClick={() => setShowAddPurposeInput((prev) => !prev)}
                   className={plusButtonClass}
@@ -564,7 +544,9 @@ export default function EventCreatePage() {
               {purposeMessage && <p className="mt-2 text-xs text-[var(--accent)]">{purposeMessage}</p>}
 
               <label className="mt-4 block text-sm">
-                <span className="font-semibold text-[var(--accent)]">イベントタイトル</span>
+                <span className="font-semibold text-[var(--accent)]">
+                  イベントタイトル<span className="ml-1 text-rose-500">*</span>
+                </span>
                 <div className="mt-2 flex items-center gap-2">
                   <input
                     value={eventTitleInput}
@@ -608,9 +590,11 @@ export default function EventCreatePage() {
               )}
             </section>
 
-            {purposeElements.length > 0 && (
+            {(!isFocusMode || purposeElements.length > 0) && (
               <section ref={visibilitySectionRef} className={toStepClass(2)}>
-                <h2 className="text-sm font-semibold text-[var(--accent)]">公開範囲</h2>
+                <h2 className="text-sm font-semibold text-[var(--accent)]">
+                  公開範囲<span className="ml-1 text-rose-500">*</span>
+                </h2>
                 <p className="mt-1 text-xs text-[var(--accent)]">次に公開範囲を選択してください。</p>
                 <div className="mt-3 flex flex-wrap gap-2">
                   {visibilityOptions.map((option) => (
@@ -644,9 +628,11 @@ export default function EventCreatePage() {
               </section>
             )}
 
-            {visibilityTouched && (
+            {(!isFocusMode || visibilityTouched) && (
               <section ref={capacitySectionRef} className={toStepClass(3)}>
-                <h2 className="text-sm font-semibold text-[var(--accent)]">上限人数</h2>
+                <h2 className="text-sm font-semibold text-[var(--accent)]">
+                  上限人数<span className="ml-1 text-rose-500">*</span>
+                </h2>
                 <p className="mt-1 text-xs text-[var(--accent)]">続けて人数を決めてください。</p>
                 <label className="mt-3 block text-sm">
                   上限人数: <span className="font-semibold text-[var(--accent)]">{capacity} 人</span>
@@ -676,10 +662,12 @@ export default function EventCreatePage() {
               </section>
             )}
 
-            {capacityTouched && (
+            {(!isFocusMode || capacityTouched) && (
               <section ref={areaSectionRef} className={toStepClass(4)}>
                 <div className="flex items-center gap-2">
-                  <h2 className="text-sm font-semibold text-[var(--accent)]">エリア設定</h2>
+                  <h2 className="text-sm font-semibold text-[var(--accent)]">
+                    エリア設定<span className="ml-1 text-rose-500">*</span>
+                  </h2>
                   <button
                     onClick={() => setIsAreaOverlayOpen(true)}
                     className={plusButtonClass}
@@ -710,7 +698,12 @@ export default function EventCreatePage() {
                         <button
                           key={area}
                           onClick={() => {
-                            setSelectedEventArea(area);
+                            if (selected) {
+                              setSelectedEventArea("");
+                              setAreaStepDone(false);
+                            } else {
+                              setSelectedEventArea(area);
+                            }
                             setAreaMessage(null);
                           }}
                           className={`flex w-full items-center justify-between rounded-2xl px-3 py-3 text-left ${
@@ -737,16 +730,18 @@ export default function EventCreatePage() {
 
                 {areaMessage && <p className="mt-2 text-xs text-[var(--muted)]">{areaMessage}</p>}
 
-                <button
-                  onClick={completeAreaStep}
-                  className="mt-3 w-full rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white"
-                >
-                  エリア設定を完了して招待設定へ
-                </button>
+                {isFocusMode && (
+                  <button
+                    onClick={completeAreaStep}
+                    className="mt-3 w-full rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white"
+                  >
+                    エリア設定を完了して招待設定へ
+                  </button>
+                )}
               </section>
             )}
 
-            {areaStepDone && (
+            {(!isFocusMode || areaStepDone) && (
               <section ref={friendSectionRef} className={toStepClass(5)}>
                 <h2 className="text-sm font-semibold text-[var(--accent)]">招待するフレンド</h2>
                 <p className="mt-1 text-xs text-[var(--accent)]">最後に招待対象を選ぶか、スキップしてください。</p>
@@ -814,22 +809,26 @@ export default function EventCreatePage() {
                     )}
                   </div>
                 )}
-                <button
-                  onClick={completeFriendStep}
-                  className="mt-3 w-full rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white"
-                >
-                  招待設定を完了して確認へ
-                </button>
-                <button
-                  onClick={completeFriendStep}
-                  className="mt-2 w-full rounded-full bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)] shadow-sm"
-                >
-                  招待をスキップして確認へ
-                </button>
+                {isFocusMode && (
+                  <>
+                    <button
+                      onClick={completeFriendStep}
+                      className="mt-3 w-full rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white"
+                    >
+                      招待設定を完了して確認へ
+                    </button>
+                    <button
+                      onClick={completeFriendStep}
+                      className="mt-2 w-full rounded-full bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)] shadow-sm"
+                    >
+                      招待をスキップして確認へ
+                    </button>
+                  </>
+                )}
               </section>
             )}
 
-            {friendStepDone && (
+            {(!isFocusMode || friendStepDone) && (
               <div ref={submitSectionRef} className={toStepClass(6)}>
                 <h2 className="text-sm font-semibold text-[var(--accent)]">作成ボタン</h2>
                 <p className="mt-1 text-xs text-[var(--accent)]">内容を確認してイベントを作成してください。</p>
@@ -844,7 +843,7 @@ export default function EventCreatePage() {
               </div>
             )}
 
-            {capacityTouched && (
+            {(!isFocusMode || capacityTouched) && (
               <section className="rounded-3xl bg-white p-4 shadow-sm">
                 <h2 className="text-sm font-semibold">詳細設定（任意）</h2>
                 <p className="mt-1 text-xs text-[var(--muted)]">

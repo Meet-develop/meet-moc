@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { AvatarName } from "@/components/ui/avatar-name";
 
@@ -27,6 +27,11 @@ type EventDetail = {
     avatarIcon?: string | null;
     status: string;
     role: string;
+    invitedBy?: {
+      userId: string;
+      displayName: string;
+      avatarIcon?: string | null;
+    } | null;
   }[];
   timeCandidates: {
     id: string;
@@ -150,6 +155,7 @@ const participantBadgeMeta: Record<
 
 export default function EventDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const eventId = params.id as string;
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -167,6 +173,10 @@ export default function EventDetailPage() {
   const [selectedInviteeIds, setSelectedInviteeIds] = useState<string[]>([]);
   const [showInviteOverlay, setShowInviteOverlay] = useState(false);
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
+  const [recreateMessage, setRecreateMessage] = useState<string | null>(null);
+  const [recreateMode, setRecreateMode] = useState<
+    "same_members_new_place" | "same_place_new_members" | null
+  >(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [isCreatingInviteLink, setIsCreatingInviteLink] = useState(false);
   const [placeQuery, setPlaceQuery] = useState("");
@@ -177,6 +187,7 @@ export default function EventDetailPage() {
   const [proposalStart, setProposalStart] = useState("");
   const [timeVoteSelection, setTimeVoteSelection] = useState<Record<string, boolean | undefined>>({});
   const [placeVoteSelection, setPlaceVoteSelection] = useState<Record<string, "good" | "bad" | undefined>>({});
+  const [nowTs, setNowTs] = useState<number>(() => new Date().getTime());
 
   useEffect(() => {
     const loadUser = async () => {
@@ -204,10 +215,17 @@ export default function EventDetailPage() {
   }, [eventId, userId]);
 
   useEffect(() => {
-    if (!userId) {
-      setFriends([]);
-      return;
-    }
+    const timerId = window.setInterval(() => {
+      setNowTs(new Date().getTime());
+    }, 60_000);
+
+    return () => {
+      window.clearInterval(timerId);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!userId) return;
 
     const loadFriends = async () => {
       const query = event?.area
@@ -247,7 +265,6 @@ export default function EventDetailPage() {
     });
   }, [friends, inviteSearch]);
 
-  const nowTs = Date.now();
   const isOwner = event?.owner.userId === userId;
   const isOpenCandidateEvent = event?.status === "open" && event?.scheduleMode === "candidate";
   const hasCandidateDeadlinePassed = Boolean(
@@ -291,7 +308,7 @@ export default function EventDetailPage() {
       return { icon: "event_available", label: "開催確定" };
     }
     if (event.status === "completed") {
-      return { icon: "task_alt", label: "開催済み" };
+      return { icon: "task_alt", label: "実施済み" };
     }
     return { icon: "cancel", label: "中止" };
   }, [event, nowTs]);
@@ -309,8 +326,82 @@ export default function EventDetailPage() {
     setEvent(data);
   };
 
+  const handleRecreateFromCompleted = async (
+    mode: "same_members_new_place" | "same_place_new_members"
+  ) => {
+    if (!userId || !event) return;
+
+    setRecreateMessage(null);
+    setRecreateMode(mode);
+
+    const inviteeIds =
+      mode === "same_members_new_place"
+        ? event.participants
+            .filter(
+              (participant) =>
+                participant.status === "approved" && participant.userId !== userId
+            )
+            .map((participant) => participant.userId)
+        : [];
+
+    const fixedPlaceCandidate =
+      mode === "same_place_new_members" &&
+      event.fixedPlaceId &&
+      event.fixedPlaceName &&
+      event.fixedPlaceAddress
+        ? {
+            placeId: event.fixedPlaceId,
+            name: event.fixedPlaceName,
+            address: event.fixedPlaceAddress,
+          }
+        : undefined;
+
+    if (mode === "same_place_new_members" && !fixedPlaceCandidate) {
+      setRecreateMode(null);
+      setRecreateMessage("このイベントはお店が未確定のため、この作成方法は利用できません。");
+      return;
+    }
+
+    const response = await fetch("/api/events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ownerId: userId,
+        purpose: event.purpose,
+        eventArea: event.area ?? undefined,
+        visibility: event.visibility,
+        capacity: event.capacity,
+        scheduleMode: "candidate",
+        timeSetting: "auto",
+        placeSetting: fixedPlaceCandidate ? "manual" : "auto",
+        fixedPlace: fixedPlaceCandidate,
+        placeQuery:
+          mode === "same_members_new_place"
+            ? `${event.area ?? ""} ${event.purpose}`.trim() || event.purpose
+            : undefined,
+        inviteeIds,
+      }),
+    });
+
+    setRecreateMode(null);
+
+    if (!response.ok) {
+      setRecreateMessage("イベントの作成に失敗しました。時間をおいて再度お試しください。");
+      return;
+    }
+
+    const data = (await response.json()) as { id?: string };
+    if (!data.id) {
+      setRecreateMessage("イベントIDの取得に失敗しました。時間をおいて再度お試しください。");
+      return;
+    }
+
+    router.push(`/events/${data.id}`);
+  };
+
   const handleTimeVote = async (candidateId: string, isAvailable: boolean) => {
-    if (!userId || !event || isCandidateDeadlineExpired(event, Date.now())) return;
+    const currentTs = new Date().getTime();
+    if (!userId || !event || isCandidateDeadlineExpired(event, currentTs)) return;
     setTimeVoteSelection((prev) => ({ ...prev, [candidateId]: isAvailable }));
     await fetch(`/api/events/${eventId}/votes/time`, {
       method: "POST",
@@ -326,7 +417,8 @@ export default function EventDetailPage() {
   };
 
   const handlePlaceVote = async (candidateId: string, kind: "good" | "bad") => {
-    if (!userId || !event || isCandidateDeadlineExpired(event, Date.now())) return;
+    const currentTs = new Date().getTime();
+    if (!userId || !event || isCandidateDeadlineExpired(event, currentTs)) return;
     const score = kind === "good" ? 5 : 1;
     setPlaceVoteSelection((prev) => ({ ...prev, [candidateId]: kind }));
     await fetch(`/api/events/${eventId}/votes/place`, {
@@ -368,7 +460,8 @@ export default function EventDetailPage() {
   };
 
   const handlePlaceProposal = async (place: PlaceResult) => {
-    if (!userId || !event || isCandidateDeadlineExpired(event, Date.now())) return;
+    const currentTs = new Date().getTime();
+    if (!userId || !event || isCandidateDeadlineExpired(event, currentTs)) return;
     await fetch(`/api/events/${eventId}/proposals`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -564,7 +657,30 @@ export default function EventDetailPage() {
             <span className="rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-orange-600">
               参加 {event.participants.filter((p) => p.status === "approved").length}/{event.capacity}
             </span>
-            {isOwner ? (
+            {event.status === "completed" && userId ? (
+              <div className="w-full space-y-2 sm:w-auto sm:min-w-[19rem]">
+                <button
+                  onClick={() => handleRecreateFromCompleted("same_members_new_place")}
+                  disabled={recreateMode != null}
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="material-symbols-rounded">group</span>
+                  {recreateMode === "same_members_new_place"
+                    ? "作成中..."
+                    : "目的・メンバーは同じ（お店は別）で新規作成"}
+                </button>
+                <button
+                  onClick={() => handleRecreateFromCompleted("same_place_new_members")}
+                  disabled={recreateMode != null}
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-white px-4 py-2 text-xs font-semibold text-[var(--accent)] shadow-sm disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="material-symbols-rounded">storefront</span>
+                  {recreateMode === "same_place_new_members"
+                    ? "作成中..."
+                    : "お店・目的は同じ（メンバーは別）で新規作成"}
+                </button>
+              </div>
+            ) : isOwner ? (
               <Link
                 href={`/events/${event.id}/manage`}
                 className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
@@ -590,6 +706,9 @@ export default function EventDetailPage() {
               </button>
             )}
           </div>
+          {recreateMessage && (
+            <p className="mt-2 text-xs font-semibold text-rose-700">{recreateMessage}</p>
+          )}
         </section>
 
         {(needsTimeCandidates || needsPlaceCandidates) && (
@@ -806,6 +925,13 @@ export default function EventDetailPage() {
                     );
                   })()}
                 </div>
+                {participant.role !== "owner" && (
+                  <p className="mt-2 text-xs text-[var(--muted)]">
+                    {participant.invitedBy
+                      ? `${participant.invitedBy.displayName}さんの招待`
+                      : "自分で参加登録"}
+                  </p>
+                )}
               </li>
             ))}
           </ul>
