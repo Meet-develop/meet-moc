@@ -3,12 +3,20 @@ import { prisma } from "@/lib/prisma";
 import { getPlacePhotoUrlByPlaceId } from "@/lib/places";
 import { createAppNotifications } from "@/lib/notification-delivery";
 
+const PUBLIC_EVENT_DETAIL_CACHE_CONTROL =
+  "public, s-maxage=60, stale-while-revalidate=300";
+const PRIVATE_EVENT_DETAIL_CACHE_CONTROL =
+  "private, max-age=15, stale-while-revalidate=60";
+
 export async function GET(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { searchParams } = new URL(request.url);
   const viewerId = searchParams.get("viewerId");
+  const cacheControl = viewerId
+    ? PRIVATE_EVENT_DETAIL_CACHE_CONTROL
+    : PUBLIC_EVENT_DETAIL_CACHE_CONTROL;
   const { id } = await params;
   const event = await prisma.event.findUnique({
     where: { id },
@@ -158,31 +166,38 @@ export async function GET(
     createdAt: request.createdAt,
   }));
 
-  return NextResponse.json({
-    id: event.id,
-    purpose: event.purpose,
-    comment: eventComment,
-    area: eventArea,
-    visibility: event.visibility,
-    capacity: event.capacity,
-    status: event.status,
-    scheduleMode: event.scheduleMode,
-    fixedStartTime: event.fixedStartTime,
-    fixedEndTime: event.fixedEndTime,
-    fixedPlaceId: event.fixedPlaceId,
-    fixedPlaceName: event.fixedPlaceName,
-    fixedPlaceAddress: event.fixedPlaceAddress,
-    owner: {
-      userId: event.owner.userId,
-      displayName: event.owner.displayName,
-      avatarIcon: event.owner.avatarIcon,
+  return NextResponse.json(
+    {
+      id: event.id,
+      purpose: event.purpose,
+      comment: eventComment,
+      area: eventArea,
+      visibility: event.visibility,
+      capacity: event.capacity,
+      status: event.status,
+      scheduleMode: event.scheduleMode,
+      fixedStartTime: event.fixedStartTime,
+      fixedEndTime: event.fixedEndTime,
+      fixedPlaceId: event.fixedPlaceId,
+      fixedPlaceName: event.fixedPlaceName,
+      fixedPlaceAddress: event.fixedPlaceAddress,
+      owner: {
+        userId: event.owner.userId,
+        displayName: event.owner.displayName,
+        avatarIcon: event.owner.avatarIcon,
+      },
+      participants,
+      invitedUsers,
+      inviteRequests,
+      timeCandidates,
+      placeCandidates,
     },
-    participants,
-    invitedUsers,
-    inviteRequests,
-    timeCandidates,
-    placeCandidates,
-  });
+    {
+      headers: {
+        "Cache-Control": cacheControl,
+      },
+    }
+  );
 }
 
 export async function PATCH(

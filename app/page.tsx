@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { AvatarName } from "@/components/ui/avatar-name";
+import { consumeFeedRefreshNeeded } from "@/lib/feed-refresh";
 
 type EventSummary = {
   id: string;
@@ -49,7 +50,9 @@ export default function HomePage() {
     public: [],
   });
   const [userId, setUserId] = useState<string | null>(null);
+  const [isSessionResolved, setIsSessionResolved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const latestFeedRequestRef = useRef(0);
 
   useEffect(() => {
     let active = true;
@@ -58,14 +61,25 @@ export default function HomePage() {
       const { data } = await supabase.auth.getSession();
       if (!active) return;
       setUserId(data.session?.user?.id ?? null);
+      setIsSessionResolved(true);
     };
 
     syncUser();
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user?.id ?? null);
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user?.id) {
+        setUserId(session.user.id);
+        setIsSessionResolved(true);
+        return;
+      }
+
+      // Guard against transient null sessions on slower devices.
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      setUserId(data.session?.user?.id ?? null);
+      setIsSessionResolved(true);
     });
 
     return () => {
@@ -75,17 +89,34 @@ export default function HomePage() {
   }, []);
 
   useEffect(() => {
+    if (!isSessionResolved) {
+      return;
+    }
+
     const loadEvents = async () => {
+      const requestId = latestFeedRequestRef.current + 1;
+      latestFeedRequestRef.current = requestId;
       setIsLoading(true);
       const query = userId ? `?viewerId=${userId}` : "";
-      const response = await fetch(`/api/events${query}`);
+      const shouldForceFresh = consumeFeedRefreshNeeded();
+      const requestInit =
+        userId || shouldForceFresh
+          ? { cache: "no-store" as const }
+          : undefined;
+      const response = await fetch(
+        `/api/events${query}`,
+        requestInit
+      );
+      if (requestId !== latestFeedRequestRef.current) {
+        return;
+      }
       const data = (await response.json()) as FeedResponse;
       setFeed(data);
       setIsLoading(false);
     };
 
     loadEvents();
-  }, [userId]);
+  }, [isSessionResolved, userId]);
 
   const sortedParticipating = useMemo(
     () => [...feed.participating].sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt)),

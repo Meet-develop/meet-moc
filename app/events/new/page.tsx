@@ -6,6 +6,7 @@ import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { getAvatarToneClass, isImageAvatar } from "@/components/ui/avatar-name";
+import { markFeedRefreshNeeded } from "@/lib/feed-refresh";
 
 type Friend = {
   userId: string;
@@ -698,6 +699,8 @@ function EventCreatePageContent() {
 
     const data = (await response.json()) as { id?: string; eventId?: string };
     const nextEventId = isEditMode ? editEventId : data.id;
+
+    markFeedRefreshNeeded();
 
     if (nextEventId) {
       router.push(`/events/${nextEventId}`);
