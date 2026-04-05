@@ -15,6 +15,7 @@ export function Providers({ children }: { children: ReactNode }) {
 
   const isPublicPath = useMemo(() => {
     if (pathname.startsWith("/onboarding")) return true;
+    if (pathname.startsWith("/auth/callback")) return true;
     return isEventDetailPath(pathname);
   }, [pathname]);
 

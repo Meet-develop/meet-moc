@@ -2,9 +2,11 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 
 export default function OnboardingPage() {
+  const router = useRouter();
   const hasSupabaseConfig = Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -18,17 +20,23 @@ export default function OnboardingPage() {
     const loadSession = async () => {
       const { data } = await supabase.auth.getSession();
       setSessionUser(data.session?.user?.email ?? null);
+      if (data.session?.user?.id) {
+        router.replace("/auth/callback");
+      }
     };
     loadSession();
 
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       setSessionUser(session?.user?.email ?? null);
+      if (session?.user?.id) {
+        router.replace("/auth/callback");
+      }
     });
 
     return () => {
       listener.subscription.unsubscribe();
     };
-  }, []);
+  }, [router]);
 
   const handleSignIn = async () => {
     setMessage(null);
@@ -40,7 +48,10 @@ export default function OnboardingPage() {
     if (error) {
       console.error("Supabase sign-in error:", error);
       setMessage(`ログインに失敗しました: ${error.message}`);
+      return;
     }
+
+    router.replace("/auth/callback");
   };
 
   const handleSignUp = async () => {
@@ -53,7 +64,14 @@ export default function OnboardingPage() {
       setMessage("パスワードは6文字以上で入力してください。");
       return;
     }
-    const { error } = await supabase.auth.signUp({ email, password });
+    const emailRedirectTo = `${window.location.origin}/auth/callback`;
+    const { error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        emailRedirectTo,
+      },
+    });
     if (error) {
       console.error("Supabase sign-up error:", error);
       setMessage(`登録に失敗しました: ${error.message}`);
