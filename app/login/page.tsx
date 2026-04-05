@@ -1,9 +1,18 @@
 "use client";
 
+import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { AuthOverlay } from "@/components/features/auth/auth-overlay";
 
 export default function LoginPage() {
+  return (
+    <Suspense fallback={<div className="min-h-screen bg-transparent" />}>
+      <LoginPageContent />
+    </Suspense>
+  );
+}
+
+function LoginPageContent() {
   const searchParams = useSearchParams();
   const returnToRaw = searchParams.get("returnTo");
   const authErrorRaw = searchParams.get("authError");
