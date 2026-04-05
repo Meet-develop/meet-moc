@@ -225,6 +225,9 @@ const calcProfileCompletion = (profile: {
   return Math.round((done / checks.length) * 100);
 };
 
+const PUBLIC_FEED_CACHE_CONTROL = "public, s-maxage=60, stale-while-revalidate=300";
+const PRIVATE_FEED_CACHE_CONTROL = "private, max-age=10, stale-while-revalidate=30";
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const viewerId = searchParams.get("viewerId");
@@ -242,6 +245,12 @@ export async function GET(request: Request) {
         : period === "90d"
           ? new Date(nowDate.getTime() - 90 * 24 * 60 * 60 * 1000)
           : null;
+
+  const feedCacheControl = includePast
+    ? "no-store, max-age=0"
+    : viewerId
+      ? PRIVATE_FEED_CACHE_CONTROL
+      : PUBLIC_FEED_CACHE_CONTROL;
 
   const events = await prisma.event.findMany({
     include: {
@@ -400,7 +409,7 @@ export async function GET(request: Request) {
     },
     {
       headers: {
-        "Cache-Control": "no-store, max-age=0",
+        "Cache-Control": feedCacheControl,
       },
     }
   );

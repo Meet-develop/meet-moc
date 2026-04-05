@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+const PROFILE_CACHE_CONTROL = "private, max-age=30, stale-while-revalidate=120";
+
 const calcProfileCompletion = (profile: {
   displayName: string;
   avatarIcon: string | null;
@@ -97,6 +99,10 @@ export async function GET(
       participatingCount,
       friendCount,
       completionRate: calcProfileCompletion(profile),
+    },
+  }, {
+    headers: {
+      "Cache-Control": PROFILE_CACHE_CONTROL,
     },
   });
 }
