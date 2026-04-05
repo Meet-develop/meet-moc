@@ -219,6 +219,7 @@ export async function GET(request: Request) {
       return event.visibility === "public" || isOwner || isParticipant || isInvited;
     })
     .map((event) => {
+      const eventArea = (event as { area?: string | null }).area ?? null;
       const approvedCount = event.participants.filter(
         (participant) => participant.status === "approved"
       ).length;
@@ -258,6 +259,7 @@ export async function GET(request: Request) {
       return {
         id: event.id,
         purpose: event.purpose,
+        area: eventArea,
         visibility: event.visibility,
         capacity: event.capacity,
         status: event.status,
@@ -310,6 +312,7 @@ export async function POST(request: Request) {
   const body = (await request.json()) as {
     ownerId?: string;
     purpose?: string;
+    eventArea?: string;
     visibility?: "public" | "limited" | "private";
     capacity?: number;
     scheduleMode?: "fixed" | "candidate";
@@ -364,25 +367,74 @@ export async function POST(request: Request) {
     );
   }
 
+  let ownerProfile = await prisma.profile.findUnique({
+    where: { userId: body.ownerId },
+  });
+
+  if (!ownerProfile) {
+    ownerProfile = await prisma.profile.create({
+      data: {
+        userId: body.ownerId,
+        displayName: `ユーザー${body.ownerId.slice(0, 4)}`,
+        gender: "unspecified",
+        favoriteAreas: body.eventArea?.trim() ? [body.eventArea.trim()] : [],
+      },
+    });
+  }
+  const normalizedEventArea = body.eventArea?.trim();
+  const resolvedEventArea =
+    normalizedEventArea || ownerProfile?.favoriteAreas?.[0] || null;
+
   const fixedStartDate = body.fixedStartTime ? new Date(body.fixedStartTime) : undefined;
   const fixedEndDate = fixedStartDate
     ? new Date(fixedStartDate.getTime() + 2 * 60 * 60 * 1000)
     : undefined;
 
-  const event = await prisma.event.create({
-    data: {
-      ownerId: body.ownerId,
-      purpose: body.purpose,
-      visibility: body.visibility ?? "public",
-      capacity: body.capacity,
-      scheduleMode: resolvedScheduleMode,
-      fixedStartTime: fixedStartDate,
-      fixedEndTime: fixedEndDate,
-      fixedPlaceId: body.fixedPlace?.placeId,
-      fixedPlaceName: body.fixedPlace?.name,
-      fixedPlaceAddress: body.fixedPlace?.address,
-    },
-  });
+  const eventCreateData: {
+    ownerId: string;
+    purpose: string;
+    area?: string | null;
+    visibility: "public" | "limited" | "private";
+    capacity: number;
+    scheduleMode: "fixed" | "candidate";
+    fixedStartTime?: Date;
+    fixedEndTime?: Date;
+    fixedPlaceId?: string;
+    fixedPlaceName?: string;
+    fixedPlaceAddress?: string;
+  } = {
+    ownerId: body.ownerId,
+    purpose: body.purpose,
+    visibility: body.visibility ?? "public",
+    capacity: body.capacity,
+    scheduleMode: resolvedScheduleMode,
+    fixedStartTime: fixedStartDate,
+    fixedEndTime: fixedEndDate,
+    fixedPlaceId: body.fixedPlace?.placeId,
+    fixedPlaceName: body.fixedPlace?.name,
+    fixedPlaceAddress: body.fixedPlace?.address,
+  };
+
+  if (resolvedEventArea) {
+    eventCreateData.area = resolvedEventArea;
+  }
+
+  let event;
+  try {
+    event = await prisma.event.create({
+      data: eventCreateData as never,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("Unknown argument `area`")) {
+      const { area: _ignoredArea, ...fallbackData } = eventCreateData;
+      event = await prisma.event.create({
+        data: fallbackData,
+      });
+    } else {
+      throw error;
+    }
+  }
 
   await prisma.eventParticipant.create({
     data: {
@@ -393,10 +445,20 @@ export async function POST(request: Request) {
     },
   });
 
-  if (resolvedScheduleMode === "candidate") {
-    const ownerProfile = await prisma.profile.findUnique({
+  if (
+    resolvedEventArea &&
+    ownerProfile &&
+    (ownerProfile.favoriteAreas?.length ?? 0) === 0
+  ) {
+    await prisma.profile.update({
       where: { userId: body.ownerId },
+      data: {
+        favoriteAreas: [resolvedEventArea],
+      },
     });
+  }
+
+  if (resolvedScheduleMode === "candidate") {
     if (!isTimeManual) {
       const timeCandidates = buildDefaultTimeCandidates(
         ownerProfile?.availability as
@@ -431,14 +493,24 @@ export async function POST(request: Request) {
           })),
         });
       } else {
+        const preferredAreas = resolvedEventArea
+          ? [
+              resolvedEventArea,
+              ...(ownerProfile?.favoriteAreas ?? []).filter(
+                (area) => area !== resolvedEventArea
+              ),
+            ]
+          : ownerProfile?.favoriteAreas ?? [];
         const favoriteAreaCandidates = await buildPlaceCandidatesFromFavoriteAreas(
-          ownerProfile?.favoriteAreas ?? [],
+          preferredAreas,
           body.purpose
         );
 
-        const fallbackQuery = ownerProfile?.favoriteAreas?.[0]
-          ? `${ownerProfile.favoriteAreas[0]} ${body.purpose}`
-          : body.purpose;
+        const fallbackQuery = resolvedEventArea
+          ? `${resolvedEventArea} ${body.purpose}`
+          : ownerProfile?.favoriteAreas?.[0]
+            ? `${ownerProfile.favoriteAreas[0]} ${body.purpose}`
+            : body.purpose;
         const query = body.placeQuery ?? fallbackQuery;
         const fallbackCandidates = query ? await buildPlaceCandidates(query) : [];
 

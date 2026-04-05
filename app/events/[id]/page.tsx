@@ -10,6 +10,7 @@ import { AvatarName } from "@/components/ui/avatar-name";
 type EventDetail = {
   id: string;
   purpose: string;
+  area?: string | null;
   visibility: "public" | "limited" | "private";
   capacity: number;
   status: "open" | "confirmed" | "completed" | "cancelled";
@@ -153,7 +154,16 @@ export default function EventDetailPage() {
   const [event, setEvent] = useState<EventDetail | null>(null);
   const [userId, setUserId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [friends, setFriends] = useState<Array<{ userId: string; displayName: string; avatarIcon?: string | null }>>([]);
+  const [friends, setFriends] = useState<
+    Array<{
+      userId: string;
+      displayName: string;
+      avatarIcon?: string | null;
+      area?: string | null;
+      isFavorite?: boolean;
+    }>
+  >([]);
+  const [inviteSearch, setInviteSearch] = useState("");
   const [selectedInviteeIds, setSelectedInviteeIds] = useState<string[]>([]);
   const [showInviteOverlay, setShowInviteOverlay] = useState(false);
   const [inviteMessage, setInviteMessage] = useState<string | null>(null);
@@ -194,27 +204,48 @@ export default function EventDetailPage() {
   }, [eventId, userId]);
 
   useEffect(() => {
-    if (!userId) return;
+    if (!userId) {
+      setFriends([]);
+      return;
+    }
 
     const loadFriends = async () => {
-      const response = await fetch(`/api/friends?userId=${userId}`);
+      const query = event?.area
+        ? `/api/friends?userId=${encodeURIComponent(userId)}&eventArea=${encodeURIComponent(event.area)}`
+        : `/api/friends?userId=${encodeURIComponent(userId)}`;
+      const response = await fetch(query);
       if (!response.ok) return;
       const data = (await response.json()) as Array<{
         userId: string;
         displayName: string;
         avatarIcon?: string | null;
+        area?: string | null;
+        isFavorite?: boolean;
       }>;
       setFriends(data);
     };
 
     loadFriends();
-  }, [userId]);
+  }, [event?.area, userId]);
 
   const participantStatus = useMemo(() => {
     if (!event || !userId) return null;
     const participant = event.participants.find((item) => item.userId === userId);
     return participant?.status ?? null;
   }, [event, userId]);
+
+  const filteredInviteFriends = useMemo(() => {
+    const keyword = inviteSearch.trim().toLowerCase();
+    if (!keyword) return friends;
+
+    return friends.filter((friend) => {
+      const area = friend.area ?? "";
+      return (
+        friend.displayName.toLowerCase().includes(keyword) ||
+        area.toLowerCase().includes(keyword)
+      );
+    });
+  }, [friends, inviteSearch]);
 
   const nowTs = Date.now();
   const isOwner = event?.owner.userId === userId;
@@ -231,6 +262,7 @@ export default function EventDetailPage() {
   const openInviteOverlay = () => {
     setInviteMessage(null);
     setInviteLink(null);
+    setInviteSearch("");
     setShowInviteOverlay(true);
   };
 
@@ -491,7 +523,7 @@ export default function EventDetailPage() {
               </div>
           </div>
 
-          <div className="mt-6 grid gap-4 pt-4 md:grid-cols-3">
+          <div className="mt-6 grid gap-4 pt-4 md:grid-cols-4">
             <div className="p-1">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
                 日程
@@ -499,6 +531,12 @@ export default function EventDetailPage() {
               <p className="mt-2 text-sm font-semibold">
                 {formatStart(event.fixedStartTime)}
               </p>
+            </div>
+            <div className="p-1">
+              <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
+                エリア
+              </p>
+              <p className="mt-2 text-sm font-semibold">{event.area ?? "未設定"}</p>
             </div>
             <div className="p-1">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
@@ -971,17 +1009,41 @@ export default function EventDetailPage() {
             {friends.length === 0 ? (
               <p className="mt-4 text-sm text-[var(--muted)]">招待できるフレンドがいません。</p>
             ) : (
-              <ul className="mt-4 max-h-64 space-y-2 overflow-y-auto pr-1">
-                {friends.map((friend) => {
+              <div className="mt-4">
+                <input
+                  value={inviteSearch}
+                  onChange={(event) => setInviteSearch(event.target.value)}
+                  placeholder="フレンド名・エリアで検索"
+                  className="w-full rounded-full bg-white px-4 py-2 text-xs shadow-sm"
+                />
+                {filteredInviteFriends.length === 0 ? (
+                  <p className="mt-3 text-xs text-[var(--muted)]">一致するフレンドがいません。</p>
+                ) : (
+                  <ul className="mt-3 max-h-64 space-y-2 overflow-y-auto pr-1">
+                    {filteredInviteFriends.map((friend) => {
                   const selected = selectedInviteeIds.includes(friend.userId);
                   return (
                     <li
                       key={friend.userId}
-                      className={`flex items-center justify-between rounded-2xl px-3 py-2 ${
+                      className={`flex items-center justify-between rounded-2xl px-3 py-3 ${
                         selected ? "bg-orange-50 shadow-sm" : "bg-white shadow-sm"
                       }`}
                     >
-                      <AvatarName displayName={friend.displayName} avatarIcon={friend.avatarIcon} />
+                      <div className="min-w-0 flex items-center gap-3">
+                        <AvatarName displayName={friend.displayName} avatarIcon={friend.avatarIcon} />
+                        <div className="min-w-0">
+                          <div className="flex flex-wrap items-center gap-1">
+                            <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-[var(--muted)]">
+                              {friend.area ?? "エリア未設定"}
+                            </span>
+                            {friend.isFavorite && (
+                              <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                                お気に入り
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
                       <button
                         onClick={() => toggleInvitee(friend.userId)}
                         className={`grid h-8 w-8 place-items-center rounded-full ${
@@ -995,8 +1057,10 @@ export default function EventDetailPage() {
                       </button>
                     </li>
                   );
-                })}
-              </ul>
+                    })}
+                  </ul>
+                )}
+              </div>
             )}
 
             <button

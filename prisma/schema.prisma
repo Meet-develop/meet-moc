@@ -166,6 +166,7 @@ model Event {
   id              String          @id @default(uuid()) @db.Uuid
   ownerId         String          @map("owner_id") @db.Uuid
   purpose         String
+  area            String?
   visibility      EventVisibility @default(public)
   capacity        Int
   status          EventStatus     @default(open)

@@ -9,6 +9,7 @@ import { AvatarName } from "@/components/ui/avatar-name";
 type EventDetail = {
   id: string;
   purpose: string;
+  area?: string | null;
   status: "open" | "confirmed" | "completed" | "cancelled";
   fixedStartTime?: string | null;
   fixedPlaceId?: string | null;
@@ -148,6 +149,9 @@ export default function EventManagePage() {
             このページはオーナー専用です。
           </div>
         )}
+        <div className="mb-6 rounded-2xl bg-orange-50 px-4 py-3 text-sm text-[var(--muted)]">
+          <span className="font-semibold text-[var(--accent)]">エリア:</span> {event.area ?? "未設定"}
+        </div>
         <section>
           <h2 className="text-lg font-semibold">参加リクエスト</h2>
           {pendingParticipants.length === 0 ? (

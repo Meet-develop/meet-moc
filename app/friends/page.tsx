@@ -3,9 +3,13 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { supabase } from "@/lib/supabase/client";
-import { AvatarName } from "@/components/ui/avatar-name";
-
-type Friend = { userId: string; displayName: string; avatarIcon?: string | null };
+type Friend = {
+  userId: string;
+  displayName: string;
+  avatarIcon?: string | null;
+  area?: string | null;
+  isFavorite?: boolean;
+};
 
 type Favorite = { userId: string; displayName: string; avatarIcon?: string | null };
 
@@ -118,12 +122,20 @@ export default function FriendsPage() {
                   className="flex items-center gap-3 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm"
                 >
                   <Link href={`/profile/${friend.userId}`} className="min-w-0 flex-1">
-                    <AvatarName
-                      displayName={friend.displayName}
-                      avatarIcon={friend.avatarIcon}
-                      className="max-w-full"
-                      textClassName="truncate"
-                    />
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span
+                        aria-hidden="true"
+                        className="grid h-10 w-10 place-items-center rounded-full border border-orange-100 bg-[#f7f4ef]/80 text-base"
+                      >
+                        {friend.avatarIcon ?? friend.displayName.trim().charAt(0) ?? "?"}
+                      </span>
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-semibold text-[var(--foreground)]">
+                          {friend.displayName}
+                        </p>
+                        <p className="mt-1 text-xs text-[var(--muted)]">{friend.area ?? "エリア未設定"}</p>
+                      </div>
+                    </div>
                   </Link>
                   <button
                     onClick={() => toggleFavorite(friend.userId)}

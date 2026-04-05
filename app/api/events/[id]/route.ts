@@ -82,9 +82,12 @@ export async function GET(
     .sort((a, b) => b.score - a.score)
     .slice(0, 5);
 
+  const eventArea = (event as { area?: string | null }).area ?? null;
+
   return NextResponse.json({
     id: event.id,
     purpose: event.purpose,
+    area: eventArea,
     visibility: event.visibility,
     capacity: event.capacity,
     status: event.status,
