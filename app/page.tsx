@@ -78,7 +78,7 @@ export default function HomePage() {
     const loadEvents = async () => {
       setIsLoading(true);
       const query = userId ? `?viewerId=${userId}` : "";
-      const response = await fetch(`/api/events${query}`, { cache: "no-store" });
+      const response = await fetch(`/api/events${query}`);
       const data = (await response.json()) as FeedResponse;
       setFeed(data);
       setIsLoading(false);
