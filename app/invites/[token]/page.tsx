@@ -69,11 +69,15 @@ export default function InvitePage() {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
-        <div className="mx-auto flex max-w-4xl flex-col gap-2 px-6 py-4 sm:flex-row sm:items-center sm:justify-between">
-          <Link href="/" className="text-sm font-semibold text-[var(--muted)]">
-            ← フィードに戻る
+        <div className="mx-auto flex max-w-md items-center gap-3 px-4 py-4 sm:max-w-4xl sm:px-6">
+          <Link
+            href="/"
+            aria-label="フィードへ戻る"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+          >
+            <span className="material-symbols-rounded">chevron_left</span>
           </Link>
-          <span className="text-xs text-[var(--muted)]">招待リンク</span>
+          <h1 className="text-lg font-semibold">招待リンク</h1>
         </div>
       </header>
 
@@ -82,7 +86,7 @@ export default function InvitePage() {
         <div className="mt-2 text-sm text-[var(--muted)]">
           <AvatarName displayName={`${invite.inviter}さん`} avatarIcon={invite.inviterAvatarIcon} />
         </div>
-        <div className="mt-6 border-t border-orange-100 pt-4">
+        <div className="mt-6 pt-4">
           <p className="text-sm font-semibold">{invite.purpose}</p>
         </div>
         <button

@@ -10,6 +10,8 @@ type EventDetail = {
   id: string;
   purpose: string;
   status: "open" | "confirmed" | "completed" | "cancelled";
+  fixedStartTime?: string | null;
+  fixedPlaceName?: string | null;
   owner: { userId: string; displayName: string; avatarIcon?: string | null };
   participants: { userId: string; displayName: string; avatarIcon?: string | null; status: string; role: string }[];
   timeCandidates: { id: string; startTime: string; endTime: string; score: number }[];
@@ -73,6 +75,11 @@ export default function EventManagePage() {
     [event]
   );
 
+  const requiresTimeSelection =
+    (event?.fixedStartTime == null) && (event?.timeCandidates.length ?? 0) > 0;
+  const requiresPlaceSelection =
+    (event?.fixedPlaceName == null) && (event?.placeCandidates.length ?? 0) > 0;
+
   const handleApprove = async (userId: string) => {
     if (!ownerId) return;
     await fetch(`/api/events/${eventId}/approve`, {
@@ -104,11 +111,15 @@ export default function EventManagePage() {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
-        <div className="mx-auto flex max-w-md flex-col gap-2 px-4 py-4 sm:max-w-5xl sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <Link href={`/events/${event.id}`} className="text-sm font-semibold text-[var(--muted)]">
-            ← 参加者ビューに戻る
+        <div className="mx-auto flex max-w-md items-center gap-3 px-4 py-4 sm:max-w-5xl sm:px-6">
+          <Link
+            href={`/events/${event.id}`}
+            aria-label="イベント詳細へ戻る"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+          >
+            <span className="material-symbols-rounded">chevron_left</span>
           </Link>
-          <span className="text-xs text-[var(--muted)]">{event.purpose}</span>
+          <h1 className="text-lg font-semibold">イベント管理</h1>
         </div>
       </header>
 
@@ -140,65 +151,84 @@ export default function EventManagePage() {
           )}
         </section>
 
-        <section className="mt-8 grid gap-6 border-t border-orange-100 pt-6 md:grid-cols-2">
+        <section className="mt-8 grid gap-6 pt-6 md:grid-cols-2">
           <div>
             <h2 className="text-lg font-semibold">日程候補</h2>
-            <ul className="mt-4 space-y-3">
-              {event.timeCandidates.map((candidate) => (
-                <li
-                  key={candidate.id}
-                  className={`rounded-2xl p-4 text-sm shadow-sm ${
-                    timeCandidateId === candidate.id
-                      ? "bg-orange-50"
-                      : "bg-white"
-                  }`}
-                >
-                  <p className="font-semibold text-[var(--foreground)]">
-                    {formatStart(candidate.startTime)}
-                  </p>
-                  <p className="text-xs text-[var(--muted)]">スコア: {candidate.score}</p>
-                  <button
-                    onClick={() => setTimeCandidateId(candidate.id)}
-                    className="mt-2 w-full rounded-full bg-white px-3 py-2 text-xs shadow-sm"
+            {event.fixedStartTime ? (
+              <div className="mt-4 rounded-2xl bg-orange-50 p-4 text-sm shadow-sm">
+                <p className="text-xs text-[var(--muted)]">固定済み</p>
+                <p className="font-semibold text-[var(--foreground)]">{formatStart(event.fixedStartTime)}</p>
+              </div>
+            ) : (
+              <ul className="mt-4 space-y-3">
+                {event.timeCandidates.map((candidate) => (
+                  <li
+                    key={candidate.id}
+                    className={`rounded-2xl p-4 text-sm shadow-sm ${
+                      timeCandidateId === candidate.id
+                        ? "bg-orange-50"
+                        : "bg-white"
+                    }`}
                   >
-                    選択
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    <p className="font-semibold text-[var(--foreground)]">
+                      {formatStart(candidate.startTime)}
+                    </p>
+                    <p className="text-xs text-[var(--muted)]">スコア: {candidate.score}</p>
+                    <button
+                      onClick={() => setTimeCandidateId(candidate.id)}
+                      className="mt-2 w-full rounded-full bg-white px-3 py-2 text-xs shadow-sm"
+                    >
+                      選択
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
 
           <div>
             <h2 className="text-lg font-semibold">お店候補</h2>
-            <ul className="mt-4 space-y-3">
-              {event.placeCandidates.map((candidate) => (
-                <li
-                  key={candidate.id}
-                  className={`rounded-2xl p-4 text-sm shadow-sm ${
-                    placeCandidateId === candidate.id
-                      ? "bg-orange-50"
-                      : "bg-white"
-                  }`}
-                >
-                  <p className="font-semibold text-[var(--foreground)]">{candidate.name}</p>
-                  <p className="text-xs text-[var(--muted)]">{candidate.address}</p>
-                  <p className="text-xs text-[var(--muted)]">スコア: {candidate.score}</p>
-                  <button
-                    onClick={() => setPlaceCandidateId(candidate.id)}
-                    className="mt-2 w-full rounded-full bg-white px-3 py-2 text-xs shadow-sm"
+            {event.fixedPlaceName ? (
+              <div className="mt-4 rounded-2xl bg-orange-50 p-4 text-sm shadow-sm">
+                <p className="text-xs text-[var(--muted)]">固定済み</p>
+                <p className="font-semibold text-[var(--foreground)]">{event.fixedPlaceName}</p>
+              </div>
+            ) : (
+              <ul className="mt-4 space-y-3">
+                {event.placeCandidates.map((candidate) => (
+                  <li
+                    key={candidate.id}
+                    className={`rounded-2xl p-4 text-sm shadow-sm ${
+                      placeCandidateId === candidate.id
+                        ? "bg-orange-50"
+                        : "bg-white"
+                    }`}
                   >
-                    選択
-                  </button>
-                </li>
-              ))}
-            </ul>
+                    <p className="font-semibold text-[var(--foreground)]">{candidate.name}</p>
+                    <p className="text-xs text-[var(--muted)]">{candidate.address}</p>
+                    <p className="text-xs text-[var(--muted)]">スコア: {candidate.score}</p>
+                    <button
+                      onClick={() => setPlaceCandidateId(candidate.id)}
+                      className="mt-2 w-full rounded-full bg-white px-3 py-2 text-xs shadow-sm"
+                    >
+                      選択
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
         </section>
 
         <div className="mt-8">
           <button
             onClick={handleConfirm}
-            disabled={!ownerId || event.owner.userId !== ownerId || !timeCandidateId || !placeCandidateId}
+            disabled={
+              !ownerId ||
+              event.owner.userId !== ownerId ||
+              (requiresTimeSelection && !timeCandidateId) ||
+              (requiresPlaceSelection && !placeCandidateId)
+            }
             className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-60"
           >
             <span className="material-symbols-rounded">verified</span>

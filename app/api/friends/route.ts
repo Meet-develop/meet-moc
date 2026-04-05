@@ -9,10 +9,45 @@ export async function GET(request: Request) {
     return NextResponse.json({ message: "Missing userId" }, { status: 400 });
   }
 
-  const friends = await prisma.friendship.findMany({
+  const profile = await prisma.profile.findUnique({ where: { userId } });
+  if (!profile) {
+    await prisma.profile.create({
+      data: {
+        userId,
+        displayName: `ユーザー${userId.slice(0, 4)}`,
+        gender: "unspecified",
+      },
+    });
+  }
+
+  let friends = await prisma.friendship.findMany({
     where: { userId, status: "accepted" },
     select: { friend: { select: { userId: true, displayName: true, avatarIcon: true } } },
   });
+
+  if (friends.length === 0) {
+    const candidates = await prisma.profile.findMany({
+      where: { userId: { not: userId } },
+      orderBy: { createdAt: "asc" },
+      take: 3,
+      select: { userId: true },
+    });
+
+    if (candidates.length > 0) {
+      await prisma.friendship.createMany({
+        data: candidates.flatMap((candidate) => [
+          { userId, friendId: candidate.userId, status: "accepted" as const },
+          { userId: candidate.userId, friendId: userId, status: "accepted" as const },
+        ]),
+        skipDuplicates: true,
+      });
+
+      friends = await prisma.friendship.findMany({
+        where: { userId, status: "accepted" },
+        select: { friend: { select: { userId: true, displayName: true, avatarIcon: true } } },
+      });
+    }
+  }
 
   return NextResponse.json(
     friends.map((friend) => ({

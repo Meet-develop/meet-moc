@@ -52,19 +52,33 @@ export default function HomePage() {
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const loadUser = async () => {
+    let active = true;
+
+    const syncUser = async () => {
       const { data } = await supabase.auth.getSession();
+      if (!active) return;
       setUserId(data.session?.user?.id ?? null);
     };
 
-    loadUser();
+    syncUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUserId(session?.user?.id ?? null);
+    });
+
+    return () => {
+      active = false;
+      subscription.unsubscribe();
+    };
   }, []);
 
   useEffect(() => {
     const loadEvents = async () => {
       setIsLoading(true);
       const query = userId ? `?viewerId=${userId}` : "";
-      const response = await fetch(`/api/events${query}`);
+      const response = await fetch(`/api/events${query}`, { cache: "no-store" });
       const data = (await response.json()) as FeedResponse;
       setFeed(data);
       setIsLoading(false);

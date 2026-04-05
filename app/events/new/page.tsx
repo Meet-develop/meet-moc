@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { AvatarName } from "@/components/ui/avatar-name";
@@ -15,53 +16,227 @@ type PlaceResult = {
   lat: number;
   lng: number;
   priceLevel?: number;
+  photoUrl?: string;
 };
 
-const visibilityOptions: Array<{ value: "public" | "limited" | "private"; label: string }> = [
-  { value: "public", label: "公開" },
-  { value: "limited", label: "限定公開" },
-  { value: "private", label: "プライベート" },
+type Step = 1 | 2 | 3 | 4 | 5;
+
+const visibilityOptions: Array<{
+  value: "public" | "limited" | "private";
+  label: string;
+  icon: string;
+}> = [
+  { value: "public", label: "公開イベント", icon: "public" },
+  { value: "limited", label: "限定公開", icon: "group" },
+  { value: "private", label: "プライベート", icon: "lock" },
 ];
 
-const scheduleModeOptions: Array<{ value: "candidate" | "fixed"; label: string; caption: string }> = [
-  { value: "candidate", label: "候補から決定", caption: "みんなの投票で決定" },
-  { value: "fixed", label: "固定", caption: "開始時刻とお店を最初に確定" },
+const purposeElementOptions = [
+  "飲み会",
+  "ごはん",
+  "カフェ",
+  "カラオケ",
+  "映画",
+  "ボドゲ",
+  "スポーツ",
+  "散歩",
+  "ランチ",
+  "ディナー",
+  "初めまして歓迎",
+  "少人数",
 ];
+
+const settingOptions: Array<{
+  value: "auto" | "manual";
+  label: string;
+  caption: string;
+  recommended?: boolean;
+}> = [
+  { value: "auto", label: "おまかせ", caption: "候補を自動提案", recommended: true },
+  { value: "manual", label: "設定する", caption: "自分で確定" },
+];
+
+const plusButtonClass =
+  "grid h-7 w-7 place-items-center rounded-full border border-dashed border-gray-400 bg-gray-50 text-gray-500";
+
+const buildAutoTitle = (elements: string[]) => {
+  if (elements.length === 0) return "";
+  if (elements.length === 1) return `${elements[0]}会`;
+  return `${elements.slice(0, 2).join(" × ")}の会`;
+};
+
+const scrollToCenter = (target: HTMLElement | null) => {
+  if (!target) return;
+  target.scrollIntoView({ behavior: "smooth", block: "center" });
+};
 
 export default function EventCreatePage() {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
-  const [purpose, setPurpose] = useState("");
+
+  const [purposeElements, setPurposeElements] = useState<string[]>([]);
+  const [customPurposeOptions, setCustomPurposeOptions] = useState<string[]>([]);
+  const [customPurposeInput, setCustomPurposeInput] = useState("");
+  const [showAddPurposeInput, setShowAddPurposeInput] = useState(false);
+  const [purposeMessage, setPurposeMessage] = useState<string | null>(null);
+
+  const [eventTitleInput, setEventTitleInput] = useState("");
+  const [isTitleCustomized, setIsTitleCustomized] = useState(false);
   const [visibility, setVisibility] = useState<"public" | "limited" | "private">("public");
   const [capacity, setCapacity] = useState(6);
-  const [scheduleMode, setScheduleMode] = useState<"fixed" | "candidate">("candidate");
+  const [selectedInvites, setSelectedInvites] = useState<string[]>([]);
+  const [friends, setFriends] = useState<Friend[]>([]);
+
+  const [timeSetting, setTimeSetting] = useState<"auto" | "manual">("auto");
+  const [placeSetting, setPlaceSetting] = useState<"auto" | "manual">("auto");
   const [fixedStart, setFixedStart] = useState("");
-  const [placeQuery, setPlaceQuery] = useState("");
-  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
   const [candidatePlaces, setCandidatePlaces] = useState<PlaceResult[]>([]);
-  const [searchMessage, setSearchMessage] = useState<string | null>(null);
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
-  const [friends, setFriends] = useState<Friend[]>([]);
-  const [selectedInvites, setSelectedInvites] = useState<string[]>([]);
+  const [searchMessage, setSearchMessage] = useState<string | null>(null);
+
+  const [visibilityTouched, setVisibilityTouched] = useState(false);
+  const [capacityTouched, setCapacityTouched] = useState(false);
+  const [friendStepDone, setFriendStepDone] = useState(false);
+  const [activeStep, setActiveStep] = useState<Step>(1);
+  const [isFocusMode, setIsFocusMode] = useState(true);
+
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+
+  const purposeSectionRef = useRef<HTMLElement | null>(null);
+  const visibilitySectionRef = useRef<HTMLElement | null>(null);
+  const capacitySectionRef = useRef<HTMLElement | null>(null);
+  const friendSectionRef = useRef<HTMLElement | null>(null);
+  const submitSectionRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    const loadUser = async () => {
+    const load = async () => {
       const { data } = await supabase.auth.getSession();
       const currentUserId = data.session?.user?.id ?? null;
       setUserId(currentUserId);
 
-      if (currentUserId) {
-        const response = await fetch(`/api/friends?userId=${currentUserId}`);
-        if (response.ok) {
-          const data = (await response.json()) as Friend[];
-          setFriends(data);
-        }
+      if (!currentUserId) return;
+      const response = await fetch(`/api/friends?userId=${currentUserId}`);
+      if (response.ok) {
+        setFriends((await response.json()) as Friend[]);
       }
     };
 
-    loadUser();
+    load();
   }, []);
+
+  useEffect(() => {
+    if (activeStep === 1) {
+      scrollToCenter(purposeSectionRef.current);
+    }
+  }, [activeStep]);
+
+  const allPurposeOptions = useMemo(
+    () => [...customPurposeOptions, ...purposeElementOptions],
+    [customPurposeOptions]
+  );
+
+  const autoTitle = useMemo(() => buildAutoTitle(purposeElements), [purposeElements]);
+  const previousAutoTitleRef = useRef(autoTitle);
+  const resolvedTitle = eventTitleInput.trim();
+
+  useEffect(() => {
+    const previousAutoTitle = previousAutoTitleRef.current;
+    if (!isTitleCustomized || eventTitleInput === previousAutoTitle) {
+      setEventTitleInput(autoTitle);
+      setIsTitleCustomized(false);
+    }
+    previousAutoTitleRef.current = autoTitle;
+  }, [autoTitle, eventTitleInput, isTitleCustomized]);
+
+  const isTimeManualValid = timeSetting === "manual" ? Boolean(fixedStart) : true;
+  const isPlaceManualValid = placeSetting === "manual" ? Boolean(selectedPlace) : true;
+  const derivedScheduleMode: "fixed" | "candidate" =
+    timeSetting === "manual" && placeSetting === "manual" ? "fixed" : "candidate";
+
+  const isCreateDisabled =
+    !userId ||
+    purposeElements.length === 0 ||
+    !resolvedTitle ||
+    !visibilityTouched ||
+    !capacityTouched ||
+    !friendStepDone ||
+    !isTimeManualValid ||
+    !isPlaceManualValid;
+
+  const helperText = useMemo(() => {
+    if (timeSetting === "manual" && placeSetting === "manual") {
+      return "日程と場所を固定して作成します。";
+    }
+    if (timeSetting === "manual") {
+      return "日程は固定し、場所は候補から決定します。";
+    }
+    if (placeSetting === "manual") {
+      return "場所は固定し、日程は候補から決定します。";
+    }
+    return "日程と場所は候補から決定されます。";
+  }, [placeSetting, timeSetting]);
+
+  const toStepClass = (step: Step) =>
+    !isFocusMode
+      ? "relative z-10 rounded-3xl bg-white p-4 shadow-sm"
+      : activeStep === step
+        ? "relative z-40 rounded-3xl bg-white p-4 shadow-xl ring-2 ring-[var(--accent)]"
+        : "relative z-10 rounded-3xl bg-white/70 p-4 opacity-45 pointer-events-none";
+
+  const handlePurposeToggle = (element: string) => {
+    setPurposeElements((prev) => {
+      if (prev.includes(element)) {
+        setPurposeMessage(null);
+        return prev.filter((item) => item !== element);
+      }
+      if (prev.length >= 2) {
+        setPurposeMessage("イベントの目的は最大2つまでです。");
+        return prev;
+      }
+      setPurposeMessage(null);
+      return [...prev, element];
+    });
+  };
+
+  const handleAddPurposeOption = () => {
+    const next = customPurposeInput.trim();
+    if (!next) return;
+    if (!customPurposeOptions.includes(next) && !purposeElementOptions.includes(next)) {
+      setCustomPurposeOptions((prev) => [next, ...prev]);
+    }
+    setCustomPurposeInput("");
+    setShowAddPurposeInput(false);
+    handlePurposeToggle(next);
+  };
+
+  const handleSelectVisibility = (value: "public" | "limited" | "private") => {
+    setVisibility(value);
+    setVisibilityTouched(true);
+  };
+
+  const handleCapacityChange = (value: number) => {
+    setCapacity(value);
+    setCapacityTouched(true);
+  };
+
+  const toggleInvite = (friendId: string) => {
+    setSelectedInvites((prev) =>
+      prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId]
+    );
+  };
+
+  const completeFriendStep = () => {
+    if (!friendStepDone) {
+      setFriendStepDone(true);
+      if (isFocusMode) {
+        setActiveStep(5);
+        setTimeout(() => scrollToCenter(submitSectionRef.current), 120);
+      }
+    }
+  };
 
   const handleSearchPlaces = async () => {
     if (!placeQuery.trim()) {
@@ -87,76 +262,67 @@ export default function EventCreatePage() {
     }
   };
 
-  const toggleInvite = (friendId: string) => {
-    setSelectedInvites((prev) =>
-      prev.includes(friendId) ? prev.filter((id) => id !== friendId) : [...prev, friendId]
-    );
-  };
-
   const toggleCandidatePlace = (place: PlaceResult) => {
     setCandidatePlaces((prev) => {
       if (prev.some((item) => item.placeId === place.placeId)) {
         return prev.filter((item) => item.placeId !== place.placeId);
       }
-      if (prev.length >= 5) {
-        return prev;
-      }
+      if (prev.length >= 5) return prev;
       return [...prev, place];
     });
   };
 
-  const isFixedValid = scheduleMode === "fixed" && fixedStart && selectedPlace;
-
   const handleSubmit = async () => {
-    if (!userId || !purpose) return;
+    if (isCreateDisabled) return;
 
+    setSubmitMessage(null);
     const response = await fetch("/api/events", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         ownerId: userId,
-        purpose,
+        purpose: resolvedTitle,
         visibility,
         capacity,
-        scheduleMode,
-        fixedStartTime: scheduleMode === "fixed" ? fixedStart : undefined,
+        scheduleMode: derivedScheduleMode,
+        timeSetting,
+        placeSetting,
+        fixedStartTime: timeSetting === "manual" ? fixedStart : undefined,
         fixedPlace:
-          scheduleMode === "fixed" && selectedPlace
+          placeSetting === "manual" && selectedPlace
             ? {
                 placeId: selectedPlace.placeId,
                 name: selectedPlace.name,
                 address: selectedPlace.address,
               }
             : undefined,
-        placeQuery: scheduleMode === "candidate" ? placeQuery : undefined,
-        candidatePlaces: scheduleMode === "candidate" ? candidatePlaces : undefined,
+        placeQuery: placeSetting === "auto" ? placeQuery : undefined,
+        candidatePlaces: placeSetting === "auto" ? candidatePlaces : undefined,
         inviteeIds: selectedInvites,
       }),
     });
 
-    if (!response.ok) return;
+    if (!response.ok) {
+      setSubmitMessage("イベントの作成に失敗しました。設定内容をご確認ください。");
+      return;
+    }
+
     const data = (await response.json()) as { id: string };
     router.push(`/events/${data.id}/manage`);
   };
 
-  const helperText = useMemo(() => {
-    if (scheduleMode === "fixed") {
-      return "開始時刻とお店を固定して作成します。";
-    }
-    if (candidatePlaces.length > 0) {
-      return `選択した ${candidatePlaces.length} 店を候補としてイベントを作成します。`;
-    }
-    return "日程とお店は候補から決定されます。";
-  }, [scheduleMode, candidatePlaces.length]);
-
   return (
     <div className="min-h-screen pb-4">
       <header className="sticky top-0 z-40 border-b border-orange-100 bg-white/95 backdrop-blur">
-        <div className="mx-auto flex max-w-md items-center justify-between px-4 py-4 sm:max-w-5xl sm:px-6">
-          <Link href="/" className="text-sm font-semibold text-[var(--muted)]">
-            ← フィード
+        <div className="mx-auto flex max-w-md items-center gap-3 px-4 py-4 sm:max-w-5xl sm:px-6">
+          <Link
+            href="/"
+            aria-label="フィードへ戻る"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+          >
+            <span className="material-symbols-rounded">chevron_left</span>
           </Link>
-          <span className="text-xs font-semibold tracking-[0.18em] text-[#b08b66]">CREATE EVENT</span>
+          <h1 className="text-lg font-semibold">イベント作成</h1>
         </div>
       </header>
 
@@ -170,209 +336,419 @@ export default function EventCreatePage() {
           </div>
         )}
 
-        <div className="pt-2">
+        <div className="relative pt-2">
+          {isFocusMode && activeStep < 5 && (
+            <button
+              type="button"
+              aria-label="フォーカスモードを解除"
+              onClick={() => setIsFocusMode(false)}
+              className="fixed inset-0 z-20 bg-black/60"
+            />
+          )}
+
           <h1 className="text-2xl font-semibold">イベントをつくる</h1>
           <p className="mt-2 text-sm text-[var(--muted)]">{helperText}</p>
+          <div className="mt-3">
+            {isFocusMode ? (
+              <button
+                onClick={() => setIsFocusMode(false)}
+                className="rounded-full border border-orange-200 bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)]"
+              >
+                フォーカスモードを解除
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setIsFocusMode(true);
+                  setActiveStep(1);
+                  setTimeout(() => scrollToCenter(purposeSectionRef.current), 120);
+                }}
+                className="rounded-full border border-orange-200 bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)]"
+              >
+                フォーカスモードを再開
+              </button>
+            )}
+          </div>
 
           <div className="mt-6 space-y-5">
-            <section className="border-t border-orange-100 py-4">
-              <label className="flex flex-col gap-2 text-sm">
-                イベントの目的
-                <input
-                  value={purpose}
-                  onChange={(event) => setPurpose(event.target.value)}
-                  placeholder="例: 週末飲み会"
-                  className="rounded-2xl bg-white px-4 py-3 shadow-sm"
-                />
+            <section ref={purposeSectionRef} className={toStepClass(1)}>
+              <div className="flex items-center gap-2">
+                <h2 className="text-sm font-semibold text-[var(--accent)]">イベントの目的</h2>
+                <button
+                  onClick={() => setShowAddPurposeInput((prev) => !prev)}
+                  className={plusButtonClass}
+                  aria-label="目的を追加"
+                >
+                  <span className="material-symbols-rounded text-sm">add</span>
+                </button>
+              </div>
+              <p className="mt-1 text-xs text-[var(--accent)]">
+                最初に目的を選択してください（最大2つ）。
+              </p>
+
+              {showAddPurposeInput && (
+                <div className="mt-3 flex items-center gap-2">
+                  <input
+                    value={customPurposeInput}
+                    onChange={(event) => setCustomPurposeInput(event.target.value)}
+                    placeholder="例: 鍋"
+                    className="flex-1 rounded-full bg-white px-4 py-2 text-sm shadow-sm"
+                  />
+                  <button
+                    onClick={handleAddPurposeOption}
+                    className="rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white"
+                  >
+                    追加
+                  </button>
+                </div>
+              )}
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                {allPurposeOptions.map((option) => (
+                  <button
+                    key={option}
+                    onClick={() => handlePurposeToggle(option)}
+                    className={`rounded-full px-4 py-2 text-xs font-semibold ${
+                      purposeElements.includes(option)
+                        ? "bg-[var(--accent)] text-white"
+                        : purposeElements.length >= 2
+                          ? "bg-gray-100 text-gray-400"
+                          : "bg-white text-[var(--muted)] shadow-sm"
+                    }`}
+                    disabled={!purposeElements.includes(option) && purposeElements.length >= 2}
+                  >
+                    {option}
+                  </button>
+                ))}
+              </div>
+
+              {purposeMessage && <p className="mt-2 text-xs text-[var(--accent)]">{purposeMessage}</p>}
+
+              <label className="mt-4 block text-sm">
+                <span className="font-semibold text-[var(--accent)]">イベントタイトル</span>
+                <div className="mt-2 flex items-center gap-2">
+                  <input
+                    value={eventTitleInput}
+                    onChange={(event) => {
+                      const next = event.target.value;
+                      setEventTitleInput(next);
+                      setIsTitleCustomized(next !== autoTitle);
+                    }}
+                    placeholder="例: 週末ゆる飲み in 恵比寿"
+                    className="flex-1 rounded-2xl bg-white px-4 py-3 shadow-sm"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setEventTitleInput(autoTitle);
+                      setIsTitleCustomized(false);
+                    }}
+                    disabled={eventTitleInput === autoTitle}
+                    className="grid h-10 w-10 place-items-center rounded-full bg-white text-[var(--muted)] shadow-sm disabled:cursor-not-allowed disabled:opacity-50"
+                    aria-label="自動入力タイトルを復元"
+                  >
+                    <span className="material-symbols-rounded text-base">undo</span>
+                  </button>
+                </div>
+                <p className="mt-1 text-[11px] text-[var(--muted)]">
+                  目的を設定すると自動で入力されます。自由に編集でき、右のボタンで自動入力へ戻せます。
+                </p>
               </label>
 
-              <div className="mt-4">
-                <p className="mb-2 text-sm font-medium">公開範囲</p>
-                <div className="flex flex-wrap gap-2">
+              {isFocusMode && (
+                <button
+                  onClick={() => {
+                    setActiveStep(2);
+                    setTimeout(() => scrollToCenter(visibilitySectionRef.current), 120);
+                  }}
+                  disabled={purposeElements.length === 0}
+                  className="mt-4 w-full rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  公開範囲の設定へ
+                </button>
+              )}
+            </section>
+
+            {purposeElements.length > 0 && (
+              <section ref={visibilitySectionRef} className={toStepClass(2)}>
+                <h2 className="text-sm font-semibold text-[var(--accent)]">公開範囲</h2>
+                <p className="mt-1 text-xs text-[var(--accent)]">次に公開範囲を選択してください。</p>
+                <div className="mt-3 flex flex-wrap gap-2">
                   {visibilityOptions.map((option) => (
                     <button
                       key={option.value}
-                      onClick={() => setVisibility(option.value)}
-                      className={`rounded-full px-4 py-2 text-xs font-semibold ${
+                      onClick={() => handleSelectVisibility(option.value)}
+                      className={`flex items-center gap-1 rounded-full px-4 py-2 text-xs font-semibold ${
                         visibility === option.value
                           ? "bg-[var(--accent)] text-white"
                           : "bg-white text-[var(--muted)] shadow-sm"
                       }`}
                     >
+                      <span className="material-symbols-rounded text-sm">{option.icon}</span>
                       {option.label}
                     </button>
                   ))}
                 </div>
-              </div>
 
-              <label className="mt-4 block text-sm">
-                上限人数: <span className="font-semibold text-[var(--accent)]">{capacity} 人</span>
-                <input
-                  type="range"
-                  min={2}
-                  max={20}
-                  step={1}
-                  value={capacity}
-                  onChange={(event) => setCapacity(Number(event.target.value))}
-                  className="mt-2 w-full accent-[var(--accent)]"
-                />
-              </label>
-            </section>
-
-            <section className="border-t border-orange-100 py-4">
-              <p className="mb-2 text-sm font-medium">日程/お店の決定方法</p>
-              <div className="grid gap-2 sm:grid-cols-2">
-                {scheduleModeOptions.map((mode) => (
+                {isFocusMode && (
                   <button
-                    key={mode.value}
-                    onClick={() => setScheduleMode(mode.value)}
-                    className={`rounded-2xl px-4 py-3 text-left ${
-                      scheduleMode === mode.value
-                        ? "bg-white shadow-md"
-                        : "bg-white/70 shadow-sm"
-                    }`}
+                    onClick={() => {
+                      setActiveStep(3);
+                      setTimeout(() => scrollToCenter(capacitySectionRef.current), 120);
+                    }}
+                    disabled={!visibilityTouched}
+                    className="mt-4 w-full rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
                   >
-                    <p className="text-sm font-semibold">{mode.label}</p>
-                    <p className="text-xs text-[var(--muted)]">{mode.caption}</p>
+                    上限人数の設定へ
                   </button>
-                ))}
-              </div>
+                )}
+              </section>
+            )}
 
-              {scheduleMode === "fixed" && (
-                <div className="mt-4">
-                  <label className="flex flex-col gap-2 text-sm">
-                    開始日時
-                    <input
-                      type="datetime-local"
-                      value={fixedStart}
-                      onChange={(event) => setFixedStart(event.target.value)}
-                      className="rounded-2xl bg-white px-4 py-3 shadow-sm"
-                    />
-                  </label>
-                </div>
-              )}
-            </section>
+            {visibilityTouched && (
+              <section ref={capacitySectionRef} className={toStepClass(3)}>
+                <h2 className="text-sm font-semibold text-[var(--accent)]">上限人数</h2>
+                <p className="mt-1 text-xs text-[var(--accent)]">続けて人数を決めてください。</p>
+                <label className="mt-3 block text-sm">
+                  上限人数: <span className="font-semibold text-[var(--accent)]">{capacity} 人</span>
+                  <input
+                    type="range"
+                    min={2}
+                    max={20}
+                    step={1}
+                    value={capacity}
+                    onChange={(event) => handleCapacityChange(Number(event.target.value))}
+                    className="mt-2 w-full accent-[var(--accent)]"
+                  />
+                </label>
 
-            <section className="border-t border-orange-100 py-4">
-              <div className="flex items-center justify-between">
-                <h2 className="text-sm font-semibold">お店を追加</h2>
-                <span className="text-xs text-[var(--muted)]">候補として追加できます</span>
-              </div>
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <input
-                  value={placeQuery}
-                  onChange={(event) => setPlaceQuery(event.target.value)}
-                  placeholder="例: 恵比寿 イタリアン"
-                  className="flex-1 rounded-full bg-white px-4 py-2 text-sm shadow-sm"
-                />
-                <button
-                  onClick={handleSearchPlaces}
-                  className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
-                >
-                  <span className="material-symbols-rounded">search</span>
-                  検索
-                </button>
-              </div>
+                {isFocusMode && (
+                  <button
+                    onClick={() => {
+                      setActiveStep(4);
+                      setTimeout(() => scrollToCenter(friendSectionRef.current), 120);
+                    }}
+                    disabled={!capacityTouched}
+                    className="mt-4 w-full rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    招待設定へ
+                  </button>
+                )}
+              </section>
+            )}
 
-              {searchMessage && <p className="mt-2 text-xs text-[var(--muted)]">{searchMessage}</p>}
-
-              {isSearching && <p className="mt-3 text-xs text-[var(--muted)]">検索中...</p>}
-
-              {!isSearching && placeResults.length > 0 && (
-                <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
-                  {placeResults.map((place) => {
-                    const selectedInFixed = selectedPlace?.placeId === place.placeId;
-                    const selectedInCandidate = candidatePlaces.some((item) => item.placeId === place.placeId);
-                    const selected = scheduleMode === "fixed" ? selectedInFixed : selectedInCandidate;
-
-                    return (
-                      <div
-                        key={place.placeId}
-                        className={`rounded-2xl px-4 py-3 ${
-                          selected ? "bg-orange-50 shadow-md" : "bg-white shadow-sm"
+            {capacityTouched && (
+              <section ref={friendSectionRef} className={toStepClass(4)}>
+                <h2 className="text-sm font-semibold text-[var(--accent)]">招待するフレンド</h2>
+                <p className="mt-1 text-xs text-[var(--accent)]">最後に招待対象を選ぶか、スキップしてください。</p>
+                {friends.length === 0 ? (
+                  <p className="mt-2 text-xs text-[var(--muted)]">フレンドがまだ登録されていません。</p>
+                ) : (
+                  <div className="mt-3 space-y-2">
+                    {friends.map((friend) => (
+                      <button
+                        key={friend.userId}
+                        onClick={() => toggleInvite(friend.userId)}
+                        className={`flex w-full items-center justify-between rounded-2xl px-3 py-2 ${
+                          selectedInvites.includes(friend.userId)
+                            ? "bg-orange-50 shadow-md"
+                            : "bg-white shadow-sm"
                         }`}
                       >
-                        <p className="text-sm font-semibold">{place.name}</p>
-                        <p className="mt-1 text-xs text-[var(--muted)]">{place.address}</p>
-                        <div className="mt-2">
-                          <button
-                            onClick={() =>
-                              scheduleMode === "fixed"
-                                ? setSelectedPlace(place)
-                                : toggleCandidatePlace(place)
-                            }
-                            className="w-full rounded-full bg-orange-100 px-4 py-2 text-xs font-semibold text-[var(--accent)]"
-                          >
-                            {selected ? "選択中" : scheduleMode === "fixed" ? "この店で固定" : "候補に追加"}
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
-              {scheduleMode === "candidate" && candidatePlaces.length > 0 && (
-                <div className="mt-4">
-                  <p className="mb-2 text-xs font-semibold text-[var(--muted)]">追加済み候補 ({candidatePlaces.length}/5)</p>
-                  <div className="flex flex-wrap gap-2">
-                    {candidatePlaces.map((place) => (
-                      <button
-                        key={place.placeId}
-                        onClick={() => toggleCandidatePlace(place)}
-                        className="rounded-full bg-white px-3 py-1 text-xs font-semibold text-[var(--accent)] shadow-sm"
-                      >
-                        {place.name} ×
+                        <AvatarName displayName={friend.displayName} avatarIcon={friend.avatarIcon} />
+                        <span className="text-xs font-semibold text-[var(--muted)]">
+                          {selectedInvites.includes(friend.userId) ? "招待予定" : "未選択"}
+                        </span>
                       </button>
                     ))}
                   </div>
-                </div>
-              )}
+                )}
+                <button
+                  onClick={completeFriendStep}
+                  className="mt-3 w-full rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white"
+                >
+                  招待設定を完了して確認へ
+                </button>
+                <button
+                  onClick={completeFriendStep}
+                  className="mt-2 w-full rounded-full bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)] shadow-sm"
+                >
+                  招待をスキップして確認へ
+                </button>
+              </section>
+            )}
 
-              {scheduleMode === "fixed" && selectedPlace && (
-                <div className="mt-4 rounded-2xl bg-orange-50 p-3 shadow-sm">
-                  <p className="text-xs text-[var(--muted)]">固定するお店</p>
-                  <p className="text-sm font-semibold">{selectedPlace.name}</p>
-                  <p className="text-xs text-[var(--muted)]">{selectedPlace.address}</p>
-                </div>
-              )}
-            </section>
+            {friendStepDone && (
+              <div ref={submitSectionRef} className={toStepClass(5)}>
+                <h2 className="text-sm font-semibold text-[var(--accent)]">作成ボタン</h2>
+                <p className="mt-1 text-xs text-[var(--accent)]">内容を確認してイベントを作成してください。</p>
+                <button
+                  onClick={handleSubmit}
+                  disabled={isCreateDisabled}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-200 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  <span className="material-symbols-rounded">rocket_launch</span>
+                  作成する
+                </button>
+              </div>
+            )}
 
-            <section className="border-t border-orange-100 py-4">
-              <h2 className="text-sm font-semibold">招待するフレンド</h2>
-              {friends.length === 0 ? (
-                <p className="mt-2 text-xs text-[var(--muted)]">フレンドがまだ登録されていません。</p>
-              ) : (
-                <div className="mt-3 space-y-2">
-                  {friends.map((friend) => (
+            {capacityTouched && (
+              <section className="rounded-3xl bg-white p-4 shadow-sm">
+                <h2 className="text-sm font-semibold">詳細設定（任意）</h2>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  日程・場所を手動設定したい場合のみ選択してください。
+                </p>
+
+                <div className="mt-4">
+                  <p className="mb-2 text-sm font-medium">日程の設定</p>
+                  <div className="space-y-2">
+                    {settingOptions.map((mode) => (
+                      <button
+                        key={mode.value}
+                        onClick={() => setTimeSetting(mode.value)}
+                        className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left ${
+                          timeSetting === mode.value
+                            ? "bg-orange-50 shadow-md"
+                            : "bg-white shadow-sm"
+                        }`}
+                      >
+                        <div>
+                          <p className="text-sm font-semibold">{mode.label}</p>
+                          <p className="text-xs text-[var(--muted)]">{mode.caption}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {mode.recommended && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              推奨
+                            </span>
+                          )}
+                          <span className="text-xs font-semibold text-[var(--muted)]">
+                            {timeSetting === mode.value ? "選択中" : "未選択"}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  {timeSetting === "manual" && (
+                    <label className="mt-3 flex flex-col gap-2 text-sm">
+                      開始日時
+                      <input
+                        type="datetime-local"
+                        value={fixedStart}
+                        onChange={(event) => setFixedStart(event.target.value)}
+                        className="rounded-2xl bg-white px-4 py-3 shadow-sm"
+                      />
+                    </label>
+                  )}
+                </div>
+
+                <div className="mt-5">
+                  <p className="mb-2 text-sm font-medium">場所の設定</p>
+                  <div className="space-y-2">
+                    {settingOptions.map((mode) => (
+                      <button
+                        key={`place-${mode.value}`}
+                        onClick={() => setPlaceSetting(mode.value)}
+                        className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left ${
+                          placeSetting === mode.value
+                            ? "bg-orange-50 shadow-md"
+                            : "bg-white shadow-sm"
+                        }`}
+                      >
+                        <div>
+                          <p className="text-sm font-semibold">{mode.label}</p>
+                          <p className="text-xs text-[var(--muted)]">{mode.caption}</p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {mode.recommended && (
+                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              推奨
+                            </span>
+                          )}
+                          <span className="text-xs font-semibold text-[var(--muted)]">
+                            {placeSetting === mode.value ? "選択中" : "未選択"}
+                          </span>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+
+                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+                    <input
+                      value={placeQuery}
+                      onChange={(event) => setPlaceQuery(event.target.value)}
+                      placeholder="例: 恵比寿 イタリアン"
+                      className="flex-1 rounded-full bg-white px-4 py-2 text-sm shadow-sm"
+                    />
                     <button
-                      key={friend.userId}
-                      onClick={() => toggleInvite(friend.userId)}
-                      className={`flex w-full items-center justify-between rounded-2xl px-3 py-2 ${
-                        selectedInvites.includes(friend.userId)
-                          ? "bg-orange-50 shadow-md"
-                          : "bg-white shadow-sm"
-                      }`}
+                      onClick={handleSearchPlaces}
+                      className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
                     >
-                      <AvatarName displayName={friend.displayName} avatarIcon={friend.avatarIcon} />
-                      <span className="text-xs font-semibold text-[var(--muted)]">
-                        {selectedInvites.includes(friend.userId) ? "招待予定" : "未選択"}
-                      </span>
+                      <span className="material-symbols-rounded">search</span>
+                      検索
                     </button>
-                  ))}
+                  </div>
+
+                  {searchMessage && <p className="mt-2 text-xs text-[var(--muted)]">{searchMessage}</p>}
+                  {isSearching && <p className="mt-2 text-xs text-[var(--muted)]">検索中...</p>}
+
+                  {!isSearching && placeResults.length > 0 && (
+                    <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
+                      {placeResults.map((place) => {
+                        const selectedInFixed = selectedPlace?.placeId === place.placeId;
+                        const selectedInCandidate = candidatePlaces.some((item) => item.placeId === place.placeId);
+                        const selected = placeSetting === "manual" ? selectedInFixed : selectedInCandidate;
+
+                        return (
+                          <div
+                            key={place.placeId}
+                            className={`rounded-2xl px-4 py-3 ${
+                              selected ? "bg-orange-50 shadow-md" : "bg-white shadow-sm"
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <Image
+                                src={place.photoUrl ?? "/file.svg"}
+                                alt={`${place.name} の写真`}
+                                width={48}
+                                height={48}
+                                className="h-12 w-12 rounded-xl object-cover"
+                              />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold">{place.name}</p>
+                                <p className="mt-1 truncate text-xs text-[var(--muted)]">{place.address}</p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={() =>
+                                placeSetting === "manual"
+                                  ? setSelectedPlace(place)
+                                  : toggleCandidatePlace(place)
+                              }
+                              className="mt-2 w-full rounded-full bg-orange-100 px-4 py-2 text-xs font-semibold text-[var(--accent)]"
+                            >
+                              {selected ? "選択中" : placeSetting === "manual" ? "この場所で固定" : "候補に追加"}
+                            </button>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+
+                  {placeSetting === "manual" && selectedPlace && (
+                    <div className="mt-3 rounded-2xl bg-orange-50 p-3 shadow-sm">
+                      <p className="text-xs text-[var(--muted)]">固定する場所</p>
+                      <p className="text-sm font-semibold">{selectedPlace.name}</p>
+                      <p className="text-xs text-[var(--muted)]">{selectedPlace.address}</p>
+                    </div>
+                  )}
                 </div>
-              )}
-            </section>
+              </section>
+            )}
           </div>
 
-          <button
-            onClick={handleSubmit}
-            disabled={!userId || (scheduleMode === "fixed" && !isFixedValid)}
-            className="mt-7 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-200 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <span className="material-symbols-rounded">rocket_launch</span>
-            作成する
-          </button>
+          {submitMessage && <p className="mt-5 text-sm text-[var(--accent)]">{submitMessage}</p>}
         </div>
       </main>
     </div>

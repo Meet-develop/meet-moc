@@ -12,9 +12,34 @@ type Notification = {
   createdAt: string;
 };
 
+const periodOptions = [
+  { value: "all", label: "すべて" },
+  { value: "7d", label: "7日" },
+  { value: "30d", label: "30日" },
+  { value: "90d", label: "90日" },
+] as const;
+
+const notificationTypeIcon: Record<string, string> = {
+  invite_received: "mail",
+  event_confirmed: "verified",
+  join_requested: "person_add",
+  join_approved: "how_to_reg",
+  friend_added: "group",
+};
+
 export default function NotificationsPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [period, setPeriod] = useState<(typeof periodOptions)[number]["value"]>("30d");
+
+  const loadNotifications = async (currentUserId: string, selectedPeriod: string) => {
+    const response = await fetch(
+      `/api/notifications?userId=${currentUserId}&period=${selectedPeriod}`
+    );
+    if (!response.ok) return;
+    const data = (await response.json()) as Notification[];
+    setNotifications(data);
+  };
 
   useEffect(() => {
     const loadUser = async () => {
@@ -23,25 +48,25 @@ export default function NotificationsPage() {
       setUserId(currentUserId);
 
       if (currentUserId) {
-        const response = await fetch(`/api/notifications?userId=${currentUserId}`);
-        if (response.ok) {
-          const data = (await response.json()) as Notification[];
-          setNotifications(data);
-        }
+        loadNotifications(currentUserId, period);
       }
     };
 
     loadUser();
-  }, []);
+  }, [period]);
 
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
-        <div className="mx-auto flex max-w-md flex-col gap-2 px-4 py-4 sm:max-w-4xl sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <Link href="/" className="text-sm font-semibold text-[var(--muted)]">
-            ← フィードに戻る
+        <div className="mx-auto flex max-w-md items-center gap-3 px-4 py-4 sm:max-w-4xl sm:px-6">
+          <Link
+            href="/"
+            aria-label="フィードへ戻る"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+          >
+            <span className="material-symbols-rounded">chevron_left</span>
           </Link>
-          <span className="text-xs text-[var(--muted)]">通知</span>
+          <h1 className="text-lg font-semibold">通知</h1>
         </div>
       </header>
 
@@ -54,25 +79,58 @@ export default function NotificationsPage() {
             </Link>
           </div>
         )}
-        <h1 className="text-2xl font-semibold">通知</h1>
-        <section className="mt-4 border-t border-orange-100 pt-4">
+        <section>
+          <div className="mb-4 flex flex-wrap gap-2">
+            {periodOptions.map((option) => (
+              <button
+                key={option.value}
+                onClick={() => setPeriod(option.value)}
+                className={`rounded-full px-4 py-2 text-xs font-semibold ${
+                  period === option.value
+                    ? "bg-[var(--accent)] text-white"
+                    : "bg-white text-[var(--muted)] shadow-sm"
+                }`}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+
           {notifications.length === 0 ? (
-            <p className="mt-4 text-sm text-[var(--muted)]">通知はまだありません。</p>
+            <div className="rounded-3xl border border-dashed border-orange-200 bg-white/80 p-8 text-center text-sm text-[var(--muted)]">
+              <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-orange-100 text-[var(--accent)]">
+                <span className="material-symbols-rounded">notifications</span>
+              </div>
+              <p className="font-semibold text-[var(--foreground)]">通知はまだありません。</p>
+              <p className="mt-1 text-xs">イベントの招待や更新が届くとここに表示されます。</p>
+            </div>
           ) : (
             <ul className="mt-6 space-y-3">
               {notifications.map((notification) => (
-                <li key={notification.id} className="rounded-2xl bg-white p-4 shadow-sm">
-                  <p className="text-sm font-semibold">{notification.message}</p>
-                  <p className="mt-1 text-xs text-[var(--muted)]">
-                    {new Date(notification.createdAt).toLocaleString("ja-JP")}
-                  </p>
+                <li
+                  key={notification.id}
+                  className="flex items-center gap-3 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm"
+                >
+                  <div className="grid h-11 w-11 place-items-center rounded-2xl bg-orange-100 text-[var(--accent)]">
+                    <span className="material-symbols-rounded">
+                      {notificationTypeIcon[notification.type] ?? "notifications"}
+                    </span>
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-semibold text-[var(--foreground)]">
+                      {notification.message}
+                    </p>
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      {new Date(notification.createdAt).toLocaleString("ja-JP")}
+                    </p>
+                  </div>
                   {notification.eventId && (
                     <Link
                       href={`/events/${notification.eventId}`}
-                      className="mt-3 flex w-full items-center justify-center gap-1 rounded-full bg-orange-100 px-3 py-2 text-xs font-semibold text-[var(--accent)] sm:inline-flex sm:w-auto"
+                      aria-label="イベントを見る"
+                      className="grid h-9 w-9 place-items-center rounded-full bg-orange-100 text-[var(--accent)]"
                     >
-                      <span className="material-symbols-rounded">arrow_forward</span>
-                      イベントを見る
+                      <span className="material-symbols-rounded">chevron_right</span>
                     </Link>
                   )}
                 </li>

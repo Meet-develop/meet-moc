@@ -20,7 +20,7 @@ export function AvatarName({
     <span className={`inline-flex items-center gap-2 ${className}`}>
       <span
         aria-hidden="true"
-        className={`grid place-items-center rounded-full bg-white shadow-sm ${avatarSize}`}
+        className={`grid place-items-center rounded-full border border-orange-100 bg-[#f7f4ef]/80 ${avatarSize}`}
       >
         {avatarIcon ?? fallback}
       </span>

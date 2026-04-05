@@ -70,11 +70,15 @@ export default function OnboardingPage() {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
-        <div className="mx-auto flex max-w-md flex-col gap-2 px-4 py-4 sm:max-w-4xl sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <Link href="/" className="text-sm font-semibold text-[var(--muted)]">
-            ← フィードに戻る
+        <div className="mx-auto flex max-w-md items-center gap-3 px-4 py-4 sm:max-w-4xl sm:px-6">
+          <Link
+            href="/"
+            aria-label="フィードへ戻る"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+          >
+            <span className="material-symbols-rounded">chevron_left</span>
           </Link>
-          <span className="text-xs text-[var(--muted)]">オンボーディング</span>
+          <h1 className="text-lg font-semibold">オンボーディング</h1>
         </div>
       </header>
 

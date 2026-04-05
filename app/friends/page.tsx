@@ -13,6 +13,7 @@ export default function FriendsPage() {
   const [userId, setUserId] = useState<string | null>(null);
   const [friends, setFriends] = useState<Friend[]>([]);
   const [favorites, setFavorites] = useState<Favorite[]>([]);
+  const [search, setSearch] = useState("");
 
   const loadData = async (currentUserId: string) => {
     const [friendsResponse, favoritesResponse] = await Promise.all([
@@ -46,6 +47,14 @@ export default function FriendsPage() {
     [favorites]
   );
 
+  const filteredFriends = useMemo(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) return friends;
+    return friends.filter((friend) =>
+      friend.displayName.toLowerCase().includes(keyword)
+    );
+  }, [friends, search]);
+
   const toggleFavorite = async (friendId: string) => {
     if (!userId) return;
     const action = favoriteIds.has(friendId) ? "remove" : "add";
@@ -60,11 +69,15 @@ export default function FriendsPage() {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-50 bg-white/90 backdrop-blur-xl shadow-sm">
-        <div className="mx-auto flex max-w-md flex-col gap-2 px-4 py-4 sm:max-w-4xl sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <Link href="/" className="text-sm font-semibold text-[var(--muted)]">
-            ← フィードに戻る
+        <div className="mx-auto flex max-w-md items-center gap-3 px-4 py-4 sm:max-w-4xl sm:px-6">
+          <Link
+            href="/"
+            aria-label="フィードへ戻る"
+            className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+          >
+            <span className="material-symbols-rounded">chevron_left</span>
           </Link>
-          <span className="text-xs text-[var(--muted)]">フレンド</span>
+          <h1 className="text-lg font-semibold">フレンド</h1>
         </div>
       </header>
 
@@ -77,27 +90,53 @@ export default function FriendsPage() {
             </Link>
           </div>
         )}
-        <h1 className="text-2xl font-semibold">フレンド一覧</h1>
-        <section className="mt-4 border-t border-orange-100 pt-4">
-          {friends.length === 0 ? (
-            <p className="mt-4 text-sm text-[var(--muted)]">フレンドがまだいません。</p>
+        <section>
+          <div className="mb-4">
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="フレンドを検索"
+              className="w-full rounded-full bg-white px-4 py-2 text-sm shadow-sm"
+            />
+          </div>
+
+          {filteredFriends.length === 0 ? (
+              <div className="rounded-3xl border border-dashed border-orange-200 bg-white/80 p-8 text-center text-sm text-[var(--muted)]">
+                <div className="mx-auto mb-3 grid h-12 w-12 place-items-center rounded-2xl bg-orange-100 text-[var(--accent)]">
+                  <span className="material-symbols-rounded">group</span>
+                </div>
+                <p className="font-semibold text-[var(--foreground)]">
+                  {friends.length === 0 ? "フレンドがまだいません。" : "一致するフレンドがいません。"}
+                </p>
+                <p className="mt-1 text-xs">招待リンクを共有して、まずは1人つながってみましょう。</p>
+              </div>
           ) : (
             <ul className="mt-6 space-y-3">
-              {friends.map((friend) => (
-                <li key={friend.userId} className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-                  <AvatarName displayName={friend.displayName} avatarIcon={friend.avatarIcon} />
+              {filteredFriends.map((friend) => (
+                <li
+                  key={friend.userId}
+                  className="flex items-center gap-3 rounded-2xl border border-orange-100 bg-white p-4 shadow-sm"
+                >
+                  <Link href={`/profile/${friend.userId}`} className="min-w-0 flex-1">
+                    <AvatarName
+                      displayName={friend.displayName}
+                      avatarIcon={friend.avatarIcon}
+                      className="max-w-full"
+                      textClassName="truncate"
+                    />
+                  </Link>
                   <button
                     onClick={() => toggleFavorite(friend.userId)}
-                    className={`flex w-full items-center justify-center gap-1 rounded-full px-3 py-2 text-xs font-semibold sm:w-auto sm:py-1 ${
+                    className={`grid h-9 w-9 place-items-center rounded-full ${
                       favoriteIds.has(friend.userId)
                         ? "bg-[var(--accent-3)] text-white"
-                        : "bg-white text-[var(--muted)] shadow-sm"
+                        : "bg-gray-100 text-gray-500"
                     }`}
+                    aria-label={favoriteIds.has(friend.userId) ? "お気に入り解除" : "お気に入りに追加"}
                   >
                     <span className="material-symbols-rounded">
                       {favoriteIds.has(friend.userId) ? "star" : "star_border"}
                     </span>
-                    {favoriteIds.has(friend.userId) ? "お気に入り" : "お気に入りに追加"}
                   </button>
                 </li>
               ))}

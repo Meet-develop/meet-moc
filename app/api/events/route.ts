@@ -175,9 +175,12 @@ export async function GET(request: Request) {
         (participant) => participant.status === "approved"
       ).length;
       const isOwner = viewerId ? event.ownerId === viewerId : false;
-      const isApprovedParticipant = viewerId
+      const isJoinedParticipant = viewerId
         ? event.participants.some(
-            (participant) => participant.userId === viewerId && participant.status === "approved"
+            (participant) =>
+              participant.userId === viewerId &&
+              participant.status !== "declined" &&
+              participant.status !== "cancelled"
           )
         : false;
       const pendingInvite = viewerId
@@ -223,7 +226,7 @@ export async function GET(request: Request) {
         timeCandidates,
         placeCandidates,
         isFavoriteOwner: viewerId ? favoriteOwnerIds.has(event.ownerId) : false,
-        viewerRelation: isOwner || isApprovedParticipant
+        viewerRelation: isOwner || isJoinedParticipant
           ? "participating"
           : pendingInvite
             ? "invited"
@@ -241,11 +244,18 @@ export async function GET(request: Request) {
   const invited = formatted.filter((event) => event.viewerRelation === "invited");
   const publicEvents = formatted.filter((event) => event.viewerRelation === "public");
 
-  return NextResponse.json({
-    participating,
-    invited,
-    public: publicEvents,
-  });
+  return NextResponse.json(
+    {
+      participating,
+      invited,
+      public: publicEvents,
+    },
+    {
+      headers: {
+        "Cache-Control": "no-store, max-age=0",
+      },
+    }
+  );
 }
 
 export async function POST(request: Request) {
@@ -255,6 +265,8 @@ export async function POST(request: Request) {
     visibility?: "public" | "limited" | "private";
     capacity?: number;
     scheduleMode?: "fixed" | "candidate";
+    timeSetting?: "auto" | "manual";
+    placeSetting?: "auto" | "manual";
     fixedStartTime?: string;
     fixedPlace?: {
       placeId: string;
@@ -273,19 +285,33 @@ export async function POST(request: Request) {
     inviteeIds?: string[];
   };
 
-  if (!body.ownerId || !body.purpose || body.capacity == null || !body.scheduleMode) {
+  if (!body.ownerId || !body.purpose || body.capacity == null) {
     return NextResponse.json(
-      { message: "ownerId, purpose, capacity, scheduleMode are required" },
+      { message: "ownerId, purpose, capacity are required" },
       { status: 400 }
     );
   }
 
-  if (
-    body.scheduleMode === "fixed" &&
-    (!body.fixedStartTime || !body.fixedPlace)
-  ) {
+  const legacyFixed = body.scheduleMode === "fixed";
+  const isTimeManual = body.timeSetting
+    ? body.timeSetting === "manual"
+    : legacyFixed;
+  const isPlaceManual = body.placeSetting
+    ? body.placeSetting === "manual"
+    : legacyFixed;
+  const resolvedScheduleMode =
+    isTimeManual && isPlaceManual ? "fixed" : "candidate";
+
+  if (isTimeManual && !body.fixedStartTime) {
     return NextResponse.json(
-      { message: "fixedStartTime and fixedPlace are required" },
+      { message: "fixedStartTime is required when timeSetting is manual" },
+      { status: 400 }
+    );
+  }
+
+  if (isPlaceManual && !body.fixedPlace) {
+    return NextResponse.json(
+      { message: "fixedPlace is required when placeSetting is manual" },
       { status: 400 }
     );
   }
@@ -301,7 +327,7 @@ export async function POST(request: Request) {
       purpose: body.purpose,
       visibility: body.visibility ?? "public",
       capacity: body.capacity,
-      scheduleMode: body.scheduleMode,
+      scheduleMode: resolvedScheduleMode,
       fixedStartTime: fixedStartDate,
       fixedEndTime: fixedEndDate,
       fixedPlaceId: body.fixedPlace?.placeId,
@@ -319,54 +345,58 @@ export async function POST(request: Request) {
     },
   });
 
-  if (body.scheduleMode === "candidate") {
+  if (resolvedScheduleMode === "candidate") {
     const ownerProfile = await prisma.profile.findUnique({
       where: { userId: body.ownerId },
     });
-    const timeCandidates = buildDefaultTimeCandidates(
-      ownerProfile?.availability as
-        | {
-            weekdaySlots?: Record<string, { daytime?: boolean; night?: boolean }>;
-            days?: string[];
-            timeRanges?: { start: string; end: string }[];
-          }
-        | undefined
-    );
-    await prisma.eventTimeCandidate.createMany({
-      data: timeCandidates.map((candidate) => ({
-        eventId: event.id,
-        ...candidate,
-      })),
-    });
-
-    const fallbackQuery = ownerProfile?.favoriteAreas?.[0]
-      ? `${ownerProfile.favoriteAreas[0]} ${body.purpose}`
-      : body.purpose;
-    const query = body.placeQuery ?? fallbackQuery;
-
-    if (body.candidatePlaces && body.candidatePlaces.length > 0) {
-      await prisma.eventPlaceCandidate.createMany({
-        data: body.candidatePlaces.slice(0, 5).map((candidate) => ({
+    if (!isTimeManual) {
+      const timeCandidates = buildDefaultTimeCandidates(
+        ownerProfile?.availability as
+          | {
+              weekdaySlots?: Record<string, { daytime?: boolean; night?: boolean }>;
+              days?: string[];
+              timeRanges?: { start: string; end: string }[];
+            }
+          | undefined
+      );
+      await prisma.eventTimeCandidate.createMany({
+        data: timeCandidates.map((candidate) => ({
           eventId: event.id,
-          placeId: candidate.placeId,
-          name: candidate.name,
-          address: candidate.address,
-          lat: candidate.lat,
-          lng: candidate.lng,
-          priceLevel: candidate.priceLevel,
-          score: 0,
-          source: "system",
+          ...candidate,
         })),
       });
-    } else if (query) {
-      const placeCandidates = await buildPlaceCandidates(query);
-      if (placeCandidates.length > 0) {
+    }
+
+    if (!isPlaceManual) {
+      const fallbackQuery = ownerProfile?.favoriteAreas?.[0]
+        ? `${ownerProfile.favoriteAreas[0]} ${body.purpose}`
+        : body.purpose;
+      const query = body.placeQuery ?? fallbackQuery;
+
+      if (body.candidatePlaces && body.candidatePlaces.length > 0) {
         await prisma.eventPlaceCandidate.createMany({
-          data: placeCandidates.map((candidate) => ({
+          data: body.candidatePlaces.slice(0, 5).map((candidate) => ({
             eventId: event.id,
-            ...candidate,
+            placeId: candidate.placeId,
+            name: candidate.name,
+            address: candidate.address,
+            lat: candidate.lat,
+            lng: candidate.lng,
+            priceLevel: candidate.priceLevel,
+            score: 0,
+            source: "system",
           })),
         });
+      } else if (query) {
+        const placeCandidates = await buildPlaceCandidates(query);
+        if (placeCandidates.length > 0) {
+          await prisma.eventPlaceCandidate.createMany({
+            data: placeCandidates.map((candidate) => ({
+              eventId: event.id,
+              ...candidate,
+            })),
+          });
+        }
       }
     }
   }
