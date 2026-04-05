@@ -44,6 +44,8 @@ type ProfileResponse = {
   stats?: ProfileStats;
 };
 
+const PROFILE_COMPLETION_THRESHOLD = 100;
+
 const genderOptions = [
   { value: "unspecified", label: "未設定" },
   { value: "male", label: "男性" },
@@ -203,6 +205,12 @@ export default function ProfileSetupPage() {
         const response = await fetch(`/api/profiles/${currentUserId}`);
         if (response.ok) {
           const profile = (await response.json()) as ProfileResponse;
+          const completionRate = profile.stats?.completionRate ?? 0;
+          if (completionRate >= PROFILE_COMPLETION_THRESHOLD) {
+            router.replace("/");
+            return;
+          }
+
           setDisplayName(profile.displayName ?? "");
           setAvatarIcon(profile.avatarIcon ?? avatarOptions[0]);
           setGender(profile.gender ?? "unspecified");
@@ -221,7 +229,7 @@ export default function ProfileSetupPage() {
     };
 
     loadUser();
-  }, []);
+  }, [router]);
 
   const completionRate = useMemo(() => {
     const localChecks = [
@@ -394,6 +402,16 @@ export default function ProfileSetupPage() {
       if (refreshed.ok) {
         const profile = (await refreshed.json()) as ProfileResponse;
         setStats(profile.stats ?? defaultStats);
+
+        if ((profile.stats?.completionRate ?? 0) >= PROFILE_COMPLETION_THRESHOLD) {
+          await supabase.auth.updateUser({
+            data: {
+              profile_completed: true,
+            },
+          });
+          router.replace("/");
+          return;
+        }
       }
     } else {
       setMessage("保存に失敗しました。");

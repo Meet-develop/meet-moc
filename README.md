@@ -43,6 +43,19 @@ Copy `.env.example` to `.env` and set the following:
 - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
 - `GOOGLE_PLACES_API_KEY`
 
+## Supabase Auth Callback Setup
+
+This app routes auth callbacks to `/auth/callback` and then decides whether to move the user to profile setup or the main feed.
+
+Configure these in Supabase Dashboard:
+
+- Authentication -> URL Configuration -> Site URL: `http://localhost:3000`
+- Authentication -> URL Configuration -> Additional Redirect URLs: `http://localhost:3000/auth/callback`
+
+## Supabase RLS (profiles)
+
+Use SQL in `supabase/profiles_rls.sql` in Supabase SQL Editor to enable row-level security for `public.profiles`.
+
 Place search results are cached in the `place_cache` table to reduce API usage.
 
 ## Prisma (Schema + Seed)
