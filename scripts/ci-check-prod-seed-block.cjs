@@ -16,6 +16,24 @@ const checkLine = (filePath, lineNumber, line) => {
     normalized.includes("npm run db:seed");
 
   const hasNonLocalOverride = normalized.includes("allow_non_local_seed=true");
+  const hasUnsafeMigrateCommand =
+    normalized.includes("npm run db:migrate") &&
+    !normalized.includes("npm run db:migrate:prod");
+
+  if (hasUnsafeMigrateCommand) {
+    failures.push(
+      `${filePath}:${lineNumber}: disallow workflow usage of db:migrate. Use db:migrate:prod only in prisma-migrate-prod.yml.`
+    );
+  }
+
+  if (
+    normalized.includes("npm run db:migrate:prod") &&
+    !filePath.endsWith("prisma-migrate-prod.yml")
+  ) {
+    failures.push(
+      `${filePath}:${lineNumber}: db:migrate:prod is only allowed in .github/workflows/prisma-migrate-prod.yml.`
+    );
+  }
 
   if (hasDangerousSeedCommand || hasNonLocalOverride) {
     failures.push(`${filePath}:${lineNumber}: ${line.trim()}`);
@@ -28,10 +46,46 @@ const checkDockerComposeGuard = () => {
 
   const content = fs.readFileSync(composePath, "utf8");
   const hasGuard = content.includes("SEED_ON_STARTUP") && content.includes("npm run db:seed");
+  const hasLocalDbPin = content.includes(
+    'DATABASE_URL: "postgresql://postgres:postgres@db:5432/meet_moc"'
+  );
+  const hasLocalDirectPin = content.includes(
+    'DIRECT_URL: "postgresql://postgres:postgres@db:5432/meet_moc"'
+  );
 
   if (!hasGuard) {
     failures.push(
       "docker-compose.yml: app startup must not run unconditional seed. Expected SEED_ON_STARTUP guard around db:seed."
+    );
+  }
+
+  if (!hasLocalDbPin || !hasLocalDirectPin) {
+    failures.push(
+      "docker-compose.yml: DATABASE_URL and DIRECT_URL must be pinned to local db service for safe local development."
+    );
+  }
+};
+
+const checkProdMigrationWorkflow = () => {
+  const prodWorkflowPath = path.join(root, ".github", "workflows", "prisma-migrate-prod.yml");
+  if (!fs.existsSync(prodWorkflowPath)) {
+    failures.push(
+      ".github/workflows/prisma-migrate-prod.yml is required to run production migrate deploy on main pushes."
+    );
+    return;
+  }
+
+  const content = fs.readFileSync(prodWorkflowPath, "utf8").toLowerCase();
+
+  if (!content.includes("branches:") || !content.includes("- main")) {
+    failures.push(
+      ".github/workflows/prisma-migrate-prod.yml: workflow trigger must include push to main."
+    );
+  }
+
+  if (!content.includes("npm run db:migrate:prod")) {
+    failures.push(
+      ".github/workflows/prisma-migrate-prod.yml: must execute npm run db:migrate:prod."
     );
   }
 };
@@ -58,6 +112,7 @@ const checkWorkflows = () => {
 
 checkWorkflows();
 checkDockerComposeGuard();
+checkProdMigrationWorkflow();
 
 if (failures.length > 0) {
   console.error("[ci-check-prod-seed-block] Failed.");

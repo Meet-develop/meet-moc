@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { createAppNotifications } from "@/lib/notification-delivery";
+import { formatDateTimeInJst } from "@/lib/datetime";
 
 const formatConfirmedInfo = (
   startTime?: Date | null,
   placeName?: string | null
 ) => {
   const dateLabel = startTime
-    ? new Date(startTime).toLocaleString("ja-JP", {
+    ? formatDateTimeInJst(startTime, {
         month: "numeric",
         day: "numeric",
         weekday: "short",

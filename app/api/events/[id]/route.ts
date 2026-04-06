@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getPlacePhotoUrlByPlaceId } from "@/lib/places";
 import { createAppNotifications } from "@/lib/notification-delivery";
+import { parseIsoDateTimeWithTimeZone } from "@/lib/datetime";
 
 const EVENT_DETAIL_CACHE_CONTROL = "no-store, max-age=0";
 
@@ -277,15 +278,28 @@ export async function PATCH(
 
   if (body.timeSetting === "manual") {
     updateData.scheduleMode = "fixed";
-    if (body.fixedStartTime) {
-      const fixedStartTime = new Date(body.fixedStartTime);
-      if (!Number.isNaN(fixedStartTime.getTime())) {
-        updateData.fixedStartTime = fixedStartTime;
-        updateData.fixedEndTime = new Date(
-          fixedStartTime.getTime() + 2 * 60 * 60 * 1000
-        );
-      }
+    if (!body.fixedStartTime) {
+      return NextResponse.json(
+        { message: "fixedStartTime is required when timeSetting is manual" },
+        { status: 400 }
+      );
     }
+
+    const fixedStartTime = parseIsoDateTimeWithTimeZone(body.fixedStartTime);
+    if (!fixedStartTime) {
+      return NextResponse.json(
+        {
+          message:
+            "fixedStartTime must include timezone offset or Z (ISO 8601), e.g. 2026-04-10T10:00:00.000Z",
+        },
+        { status: 400 }
+      );
+    }
+
+    updateData.fixedStartTime = fixedStartTime;
+    updateData.fixedEndTime = new Date(
+      fixedStartTime.getTime() + 2 * 60 * 60 * 1000
+    );
   } else if (body.timeSetting === "auto") {
     updateData.scheduleMode = "candidate";
     updateData.fixedStartTime = null;

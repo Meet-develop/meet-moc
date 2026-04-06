@@ -9,8 +9,9 @@
     "lint": "eslint",
     "test:auth-redirect": "tsx tests/post-auth-redirect.test.ts",
     "db:generate": "prisma generate",
-    "db:migrate": "prisma migrate deploy",
-    "db:migrate:dev": "prisma migrate dev",
+    "db:migrate": "node scripts/prisma-migrate-guard.cjs deploy",
+    "db:migrate:dev": "node scripts/prisma-migrate-guard.cjs dev",
+    "db:migrate:prod": "ALLOW_NON_LOCAL_MIGRATE=true node scripts/prisma-migrate-guard.cjs deploy",
     "db:seed": "prisma db seed",
     "db:seed:nonlocal": "ALLOW_NON_LOCAL_SEED=true prisma db seed",
     "db:studio": "prisma studio"
