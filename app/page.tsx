@@ -98,11 +98,8 @@ export default function HomePage() {
       latestFeedRequestRef.current = requestId;
       setIsLoading(true);
       const query = userId ? `?viewerId=${userId}` : "";
-      const shouldForceFresh = consumeFeedRefreshNeeded();
-      const requestInit =
-        userId || shouldForceFresh
-          ? { cache: "no-store" as const }
-          : undefined;
+      consumeFeedRefreshNeeded();
+      const requestInit = { cache: "no-store" as const };
       const response = await fetch(
         `/api/events${query}`,
         requestInit

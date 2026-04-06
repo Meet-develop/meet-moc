@@ -73,11 +73,11 @@ export async function POST(
   }
 
   const approvedCount = event.participants.filter(
-    (participant) => participant.status === "approved"
+    (participant: { status: string }) => participant.status === "approved"
   ).length;
 
   const existingParticipant = event.participants.find(
-    (participant) => participant.userId === body.userId
+    (participant: { userId: string }) => participant.userId === body.userId
   );
 
   const overCapacity = approvedCount >= event.capacity;

@@ -244,7 +244,9 @@ export default function EventDetailPage() {
       latestEventRequestRef.current = requestId;
       setIsLoading(true);
       const query = userId ? `?viewerId=${userId}` : "";
-      const response = await fetch(`/api/events/${eventId}${query}`);
+      const response = await fetch(`/api/events/${eventId}${query}`, {
+        cache: "no-store",
+      });
       if (requestId !== latestEventRequestRef.current) {
         return;
       }
@@ -277,7 +279,7 @@ export default function EventDetailPage() {
       const query = event?.area
         ? `/api/friends?userId=${encodeURIComponent(userId)}&eventArea=${encodeURIComponent(event.area)}`
         : `/api/friends?userId=${encodeURIComponent(userId)}`;
-      const response = await fetch(query);
+      const response = await fetch(query, { cache: "no-store" });
       if (!response.ok) return;
       const data = (await response.json()) as Array<{
         userId: string;
@@ -627,7 +629,9 @@ export default function EventDetailPage() {
       body: JSON.stringify({ userId, type: "place", place }),
     });
     const query = userId ? `?viewerId=${userId}` : "";
-    const response = await fetch(`/api/events/${eventId}${query}`);
+    const response = await fetch(`/api/events/${eventId}${query}`, {
+      cache: "no-store",
+    });
     if (response.ok) {
       const data = (await response.json()) as EventDetail;
       setEvent(data);

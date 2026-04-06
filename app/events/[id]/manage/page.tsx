@@ -84,7 +84,7 @@ export default function EventManagePage() {
   };
 
   const refreshEvent = async () => {
-    const response = await fetch(`/api/events/${eventId}`);
+    const response = await fetch(`/api/events/${eventId}`, { cache: "no-store" });
     if (!response.ok) return;
     const data = (await response.json()) as EventDetail;
     applyEventState(data);
@@ -103,7 +103,7 @@ export default function EventManagePage() {
     let active = true;
 
     const loadEvent = async () => {
-      const response = await fetch(`/api/events/${eventId}`);
+      const response = await fetch(`/api/events/${eventId}`, { cache: "no-store" });
       if (!response.ok || !active) return;
       const data = (await response.json()) as EventDetail;
       applyEventState(data);

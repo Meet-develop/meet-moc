@@ -17,6 +17,26 @@ type ProfileResponse = {
   stats?: ProfileStats;
 };
 
+const LINE_PROVIDER_KEYS = ["line", "custom:line"];
+
+const isLineProvider = (provider?: string) => {
+  if (!provider) return false;
+  const normalized = provider.toLowerCase();
+  return LINE_PROVIDER_KEYS.some((key) => normalized === key || normalized.includes(key));
+};
+
+const isGenericFallbackDisplayName = (displayName?: string | null, userId?: string) => {
+  if (!displayName) return true;
+  const trimmed = displayName.trim();
+  if (!trimmed) return true;
+
+  if (userId && trimmed === `ユーザー${userId.slice(0, 4)}`) {
+    return true;
+  }
+
+  return /^ユーザー[0-9a-f]{4}$/i.test(trimmed);
+};
+
 const sanitizeReturnTo = (value: string | null) => {
   if (!value) return undefined;
   if (!value.startsWith("/")) return undefined;
@@ -33,6 +53,15 @@ const buildLoginUrlWithError = (message: string, returnTo?: string) => {
     params.set("returnTo", returnTo);
   }
   return `/login?${params.toString()}`;
+};
+
+const safeDecode = (value?: string | null) => {
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 };
 
 const pickFirstString = (...candidates: unknown[]) => {
@@ -57,7 +86,7 @@ const pickLineProfileDefaults = (user: {
   identities?: Array<{ provider?: string; identity_data?: Record<string, unknown> }>;
 }) => {
   const metadata = user.user_metadata ?? {};
-  const lineIdentity = user.identities?.find((identity) => identity.provider === "line");
+  const lineIdentity = user.identities?.find((identity) => isLineProvider(identity.provider));
   const identityData = lineIdentity?.identity_data ?? {};
 
   const displayName = pickFirstString(
@@ -97,7 +126,7 @@ const pickLineUserId = (user: {
   identities?: Array<{ provider?: string; identity_data?: Record<string, unknown> }>;
 }) => {
   const metadata = user.user_metadata ?? {};
-  const lineIdentity = user.identities?.find((identity) => identity.provider === "line");
+  const lineIdentity = user.identities?.find((identity) => isLineProvider(identity.provider));
   const identityData = lineIdentity?.identity_data ?? {};
 
   return pickFirstString(
@@ -117,14 +146,22 @@ export default function AuthCallbackPage() {
     const resolveRedirect = async () => {
       const callbackUrl = new URL(window.location.href);
       const code = callbackUrl.searchParams.get("code");
-      const oauthError = callbackUrl.searchParams.get("error");
-      const oauthErrorDescription = callbackUrl.searchParams.get("error_description");
+      const hashParams = new URLSearchParams(callbackUrl.hash.replace(/^#/, ""));
+      const oauthError =
+        callbackUrl.searchParams.get("error") ?? hashParams.get("error");
+      const oauthErrorDescription = safeDecode(
+        callbackUrl.searchParams.get("error_description") ??
+          hashParams.get("error_description")
+      );
       const returnTo = sanitizeReturnTo(callbackUrl.searchParams.get("returnTo"));
       const eventReturnTo = returnTo && isEventDetailPath(returnTo) ? returnTo : undefined;
 
       if (oauthError || oauthErrorDescription) {
         if (active) {
-          const message = oauthErrorDescription ?? oauthError ?? "LINEログインに失敗しました。";
+          const rawMessage = oauthErrorDescription ?? oauthError ?? "LINEログインに失敗しました。";
+          const message = /an unknown error occurred/i.test(rawMessage)
+            ? "LINE認証で不明なエラーが発生しました。時間をおいて再試行してください。"
+            : rawMessage;
           router.replace(buildLoginUrlWithError(message, returnTo));
         }
         return;
@@ -213,19 +250,26 @@ export default function AuthCallbackPage() {
 
       const needsLinePatch = Boolean(
         profile &&
-          ((lineDefaults.displayName && (!profile.displayName || !profile.displayName.trim())) ||
+          ((lineDefaults.displayName &&
+            isGenericFallbackDisplayName(profile.displayName, session.user.id)) ||
             (lineDefaults.avatarIcon && !profile.avatarIcon) ||
             (lineDefaults.birthDate && !profile.birthDate) ||
             (lineUserId && !profile.lineUserId))
       );
 
       if (profile && needsLinePatch && (lineDefaults.displayName || profile.displayName)) {
+        const resolvedDisplayName =
+          lineDefaults.displayName &&
+          isGenericFallbackDisplayName(profile.displayName, session.user.id)
+            ? lineDefaults.displayName
+            : profile.displayName;
+
         await fetch("/api/profiles", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             userId: session.user.id,
-            displayName: lineDefaults.displayName ?? profile.displayName,
+            displayName: resolvedDisplayName,
             avatarIcon: profile.avatarIcon ?? lineDefaults.avatarIcon,
             birthDate: profile.birthDate ?? lineDefaults.birthDate,
             lineUserId: profile.lineUserId ?? lineUserId,
