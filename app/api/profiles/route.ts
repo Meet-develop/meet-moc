@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { createAppNotification } from "@/lib/notification-delivery";
 
@@ -17,7 +18,7 @@ export async function POST(request: Request) {
     ngFoods?: string[];
     favoriteAreas?: string[];
     favoritePlaces?: string[];
-    availability?: unknown;
+    availability?: Prisma.InputJsonValue;
   };
 
   if (!body.userId || !body.displayName) {
@@ -47,7 +48,7 @@ export async function POST(request: Request) {
       ngFoods: body.ngFoods ?? [],
       favoriteAreas: body.favoriteAreas ?? [],
       favoritePlaces: body.favoritePlaces ?? [],
-      availability: (body.availability ?? undefined) as any,
+      availability: body.availability ?? undefined,
     },
     create: {
       userId: body.userId,
@@ -63,7 +64,7 @@ export async function POST(request: Request) {
       ngFoods: body.ngFoods ?? [],
       favoriteAreas: body.favoriteAreas ?? [],
       favoritePlaces: body.favoritePlaces ?? [],
-      availability: (body.availability ?? undefined) as any,
+      availability: body.availability ?? undefined,
     },
   });
 

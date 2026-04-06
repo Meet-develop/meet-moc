@@ -1,5 +1,4 @@
 import { NextResponse } from "next/server";
-import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 
 export async function POST(
@@ -99,19 +98,8 @@ export async function POST(
     );
   }
 
-  type PlaceCandidateWithVotes = {
-    id: string;
-    placeId: string;
-    source: string;
-    score: number;
-    createdAt: Date;
-    votes: Array<{ score: number }>;
-  };
-
-  const placeCandidates = event.placeCandidates as PlaceCandidateWithVotes[];
-
   const normalizedPlaceId = body.place.placeId.trim();
-  const existing = placeCandidates.find(
+  const existing = event.placeCandidates.find(
     (candidate) => candidate.placeId === normalizedPlaceId
   );
 
@@ -134,7 +122,7 @@ export async function POST(
     proposedBy: body.userId,
   };
 
-  if (placeCandidates.length < MAX_PLACE_CANDIDATES) {
+  if (event.placeCandidates.length < MAX_PLACE_CANDIDATES) {
     const created = await prisma.eventPlaceCandidate.create({ data: createPayload });
     return NextResponse.json({ id: created.id });
   }
@@ -144,9 +132,7 @@ export async function POST(
     createdAt: Date;
     votes: Array<{ score: number }>;
   }) => ({
-    total:
-      candidate.score +
-      candidate.votes.reduce((acc, vote) => acc + vote.score, 0),
+    total: candidate.score + candidate.votes.reduce((acc, vote) => acc + vote.score, 0),
     badCount: candidate.votes.filter((vote) => vote.score <= 2).length,
     goodCount: candidate.votes.filter((vote) => vote.score >= 4).length,
   });
@@ -180,11 +166,13 @@ export async function POST(
       return pa.createdAt - pb.createdAt;
     });
 
-  const systemCandidates = placeCandidates.filter((candidate) => candidate.source === "system");
+  const systemCandidates = event.placeCandidates.filter(
+    (candidate) => candidate.source === "system"
+  );
 
   const replacementTarget =
     sortForReplacement(systemCandidates)[0] ??
-    sortForReplacement(placeCandidates)[0];
+    sortForReplacement(event.placeCandidates)[0];
 
   if (!replacementTarget) {
     return NextResponse.json(
@@ -193,7 +181,7 @@ export async function POST(
     );
   }
 
-  const replaced = await prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+  const replaced = await prisma.$transaction(async (tx) => {
     await tx.eventPlaceCandidate.delete({ where: { id: replacementTarget.id } });
     return tx.eventPlaceCandidate.create({ data: createPayload });
   });

@@ -96,12 +96,7 @@ export async function POST(
     },
   });
 
-  const participants = event.participants as Array<{
-    userId: string;
-    status: string;
-  }>;
-
-  const notifyUserIds = participants
+  const notifyUserIds = event.participants
     .filter(
       (participant) =>
         participant.status === "approved" && participant.userId !== event.ownerId

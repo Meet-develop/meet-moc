@@ -11,11 +11,7 @@ export const syncApprovedEventFriendships = async (eventId: string) => {
     },
   });
 
-  const userIds = [
-    ...new Set(
-      approvedParticipants.map((participant: { userId: string }) => participant.userId)
-    ),
-  ] as string[];
+  const userIds = [...new Set(approvedParticipants.map((participant) => participant.userId))];
 
   if (userIds.length < 2) {
     return 0;

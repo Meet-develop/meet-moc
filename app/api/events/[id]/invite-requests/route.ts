@@ -73,13 +73,13 @@ export async function POST(
 
   if (body.decision === "approve") {
     const isParticipant = event.participants.some(
-      (participant: { userId: string; status: string }) =>
+      (participant) =>
         participant.userId === body.inviteeId &&
         participant.status !== "declined" &&
         participant.status !== "cancelled"
     );
     const isAlreadyInvited = event.invites.some(
-      (invite: { inviteeId: string | null; status: string }) =>
+      (invite) =>
         invite.inviteeId === body.inviteeId &&
         (invite.status === "pending" || invite.status === "accepted")
     );

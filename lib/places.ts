@@ -79,7 +79,7 @@ const toPlacesNewPhotoUrl = (photoName: string, apiKey: string) =>
   `https://places.googleapis.com/v1/${photoName}/media?maxWidthPx=320&key=${apiKey}`;
 
 const hasSyntheticFallbackPlaces = (places: PlaceResult[]) =>
-  places.some((place: PlaceResult) => place.placeId.includes("-fallback-"));
+  places.some((place) => place.placeId.includes("-fallback-"));
 
 const isAreaLikePlace = (place: PlaceResult) => {
   const name = place.name.trim();
@@ -95,7 +95,7 @@ const buildFallbackAreas = (query: string, limit = 6): PlaceResult[] => {
   const base = normalized.length > 0 ? normalized : "エリア";
   const names = [`${base}駅`, `${base}市`, `${base}区`];
 
-  return names.slice(0, Math.min(limit, names.length)).map((name: string, index: number) => ({
+  return names.slice(0, Math.min(limit, names.length)).map((name, index) => ({
     placeId: `area-${base}-${index + 1}`,
     name,
     address: `${base} 周辺`,
@@ -118,7 +118,7 @@ const findFallbackPlaces = async (query: string, limit = 6): Promise<PlaceResult
   });
 
   if (cachedCandidates.length > 0) {
-    return cachedCandidates.map((candidate: any) => ({
+    return cachedCandidates.map((candidate) => ({
       placeId: candidate.placeId,
       name: candidate.name,
       address: candidate.address,
@@ -128,7 +128,7 @@ const findFallbackPlaces = async (query: string, limit = 6): Promise<PlaceResult
     }));
   }
 
-  return Array.from({ length: Math.min(limit, 6) }).map((_: unknown, index: number) => ({
+  return Array.from({ length: Math.min(limit, 6) }).map((_, index) => ({
     placeId: `${query}-fallback-${index + 1}`,
     name: `${query} 候補${index + 1}`,
     address: "場所情報を検索して候補を作成しました",
@@ -139,7 +139,7 @@ const findFallbackPlaces = async (query: string, limit = 6): Promise<PlaceResult
 };
 
 const mapPlaces = (results: GooglePlaceSearchItem[]): PlaceResult[] =>
-  results.flatMap((place: GooglePlaceSearchItem) => {
+  results.flatMap((place) => {
     const placeId = place.place_id?.trim();
     const name = place.name?.trim();
 
@@ -166,7 +166,7 @@ const mapPlacesNew = (
   results: GooglePlaceNewSearchItem[],
   apiKey: string
 ): PlaceResult[] =>
-  results.flatMap((place: GooglePlaceNewSearchItem) => {
+  results.flatMap((place) => {
     const placeId = place.id?.trim();
     const name = place.displayName?.text?.trim();
     if (!placeId || !name) {
