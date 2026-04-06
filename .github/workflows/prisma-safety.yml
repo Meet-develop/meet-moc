@@ -1,0 +1,35 @@
+name: Prisma Safety
+
+on:
+  pull_request:
+  push:
+    branches:
+      - develop
+
+jobs:
+  block-prod-seed:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Check workflow seed safety
+        run: node scripts/ci-check-prod-seed-block.cjs
+
+      - name: Ensure seed guard rejects non-local DB
+        shell: bash
+        run: |
+          set +e
+          DATABASE_URL='postgresql://user:pass@example.com:5432/postgres' node scripts/prisma-seed-guard.cjs
+          code=$?
+          set -e
+          if [ "$code" -eq 0 ]; then
+            echo "seed guard unexpectedly allowed non-local seed"
+            exit 1
+          fi
+          echo "seed guard correctly blocked non-local seed"
