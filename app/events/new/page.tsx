@@ -247,7 +247,8 @@ function EventCreatePageContent() {
 
       if (!currentUserId) return;
       const profileResponse = await fetch(
-        `/api/profiles/${currentUserId}?viewerId=${encodeURIComponent(currentUserId)}`
+        `/api/profiles/${currentUserId}?viewerId=${encodeURIComponent(currentUserId)}`,
+        { cache: "no-store" }
       );
       if (profileResponse.ok) {
         const profile = (await profileResponse.json()) as ProfileResponse;

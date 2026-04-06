@@ -423,7 +423,8 @@ export default function ProfileSetupPage() {
 
       if (currentUserId) {
         const response = await fetch(
-          `/api/profiles/${currentUserId}?viewerId=${encodeURIComponent(currentUserId)}`
+          `/api/profiles/${currentUserId}?viewerId=${encodeURIComponent(currentUserId)}`,
+          { cache: "no-store" }
         );
         if (response.ok) {
           const profile = (await response.json()) as ProfileResponse;
@@ -702,7 +703,8 @@ export default function ProfileSetupPage() {
       setAvatarUploadMessage(null);
       setInitialSnapshot(currentSnapshot);
       const refreshed = await fetch(
-        `/api/profiles/${userId}?viewerId=${encodeURIComponent(userId)}`
+        `/api/profiles/${userId}?viewerId=${encodeURIComponent(userId)}`,
+        { cache: "no-store" }
       );
       if (refreshed.ok) {
         const profile = (await refreshed.json()) as ProfileResponse;

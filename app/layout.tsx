@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Sora, Space_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
@@ -19,6 +19,24 @@ const spaceMono = Space_Mono({
 export const metadata: Metadata = {
   title: "Meet & Moc",
   description: "Smart event coordination with friend-first scheduling.",
+  manifest: "/manifest.webmanifest",
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "default",
+    title: "Meet & Moc",
+  },
+  icons: {
+    icon: [
+      { url: "/pwa-icon.svg", type: "image/svg+xml" },
+    ],
+    apple: [
+      { url: "/line_120.png", sizes: "120x120", type: "image/png" },
+    ],
+  },
+};
+
+export const viewport: Viewport = {
+  themeColor: "#ff6b4a",
 };
 
 export default function RootLayout({

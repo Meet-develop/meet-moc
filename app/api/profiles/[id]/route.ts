@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-const PROFILE_CACHE_CONTROL = "private, max-age=30, stale-while-revalidate=120";
+const PROFILE_CACHE_CONTROL = "no-store, max-age=0";
 
 const calcProfileCompletion = (profile: {
   displayName: string;
@@ -87,7 +87,7 @@ export async function GET(
   ]);
 
   const friendCount = new Set(
-    friendships.map((friendship) =>
+    friendships.map((friendship: { userId: string; friendId: string }) =>
       friendship.userId === id ? friendship.friendId : friendship.userId
     )
   ).size;

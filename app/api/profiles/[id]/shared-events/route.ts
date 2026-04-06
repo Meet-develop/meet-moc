@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+const SHARED_EVENTS_CACHE_CONTROL = "no-store, max-age=0";
+
 const getEventStartTime = (event: {
   fixedStartTime: Date | null;
   timeCandidates: { startTime: Date }[];
@@ -13,7 +15,7 @@ const getEventStartTime = (event: {
   }
 
   const earliest = Math.min(
-    ...event.timeCandidates.map((candidate) => candidate.startTime.getTime())
+    ...event.timeCandidates.map((candidate: { startTime: Date }) => candidate.startTime.getTime())
   );
   return Number.isFinite(earliest) ? new Date(earliest) : null;
 };
@@ -91,7 +93,7 @@ export async function GET(
   const now = Date.now();
 
   const sharedEvents = events
-    .map((event) => {
+    .map((event: any) => {
       const startTime = getEventStartTime(event);
       return {
         id: event.id,
@@ -104,11 +106,11 @@ export async function GET(
       };
     })
     .filter(
-      (event) =>
+      (event: any) =>
         event.startTime != null && new Date(event.startTime).getTime() <= now
     )
     .sort(
-      (a, b) =>
+      (a: any, b: any) =>
         new Date(b.startTime ?? b.createdAt).getTime() -
         new Date(a.startTime ?? a.createdAt).getTime()
     )
@@ -118,7 +120,7 @@ export async function GET(
     { sharedEvents },
     {
       headers: {
-        "Cache-Control": "no-store, max-age=0",
+        "Cache-Control": SHARED_EVENTS_CACHE_CONTROL,
       },
     }
   );

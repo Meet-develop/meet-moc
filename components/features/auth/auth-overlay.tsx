@@ -28,8 +28,13 @@ export function AuthOverlay({
   onClose,
 }: AuthOverlayProps) {
   const router = useRouter();
-  const lineProvider =
-    process.env.NEXT_PUBLIC_SUPABASE_LINE_PROVIDER ?? "custom:line";
+  const configuredLineProvider =
+    process.env.NEXT_PUBLIC_SUPABASE_LINE_PROVIDER?.trim() || null;
+  const lineProviders = configuredLineProvider
+    ? [configuredLineProvider, "line", "custom:line"].filter(
+        (provider, index, list) => provider && list.indexOf(provider) === index
+      )
+    : ["line", "custom:line"];
   const lineScopes =
     process.env.NEXT_PUBLIC_SUPABASE_LINE_SCOPES?.trim() || "openid profile";
   const hasSupabaseConfig = Boolean(
@@ -74,16 +79,32 @@ export function AuthOverlay({
   const handleLineLogin = async () => {
     setMessage(null);
     const redirectTo = `${window.location.origin}${callbackPath}`;
-    const { error } = await supabase.auth.signInWithOAuth({
-      provider: lineProvider as never,
-      options: {
-        redirectTo,
-        scopes: lineScopes,
-      },
-    });
+    let lastError: Error | null = null;
 
-    if (error) {
-      setMessage(`LINEログインに失敗しました: ${error.message}`);
+    for (const provider of lineProviders) {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: provider as never,
+        options: {
+          redirectTo,
+          scopes: lineScopes,
+        },
+      });
+
+      if (!error) {
+        return;
+      }
+
+      lastError = error;
+      console.error("LINE OAuth start failed", {
+        provider,
+        message: error.message,
+      });
+    }
+
+    if (lastError) {
+      setMessage(
+        `LINEログインに失敗しました: ${lastError.message}\n時間をおいて再試行するか、他の方法でログインしてください。`
+      );
     }
   };
 

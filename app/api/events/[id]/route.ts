@@ -3,10 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { getPlacePhotoUrlByPlaceId } from "@/lib/places";
 import { createAppNotifications } from "@/lib/notification-delivery";
 
-const PUBLIC_EVENT_DETAIL_CACHE_CONTROL =
-  "public, s-maxage=60, stale-while-revalidate=300";
-const PRIVATE_EVENT_DETAIL_CACHE_CONTROL =
-  "private, max-age=15, stale-while-revalidate=60";
+const EVENT_DETAIL_CACHE_CONTROL = "no-store, max-age=0";
 
 export async function GET(
   request: Request,
@@ -14,9 +11,6 @@ export async function GET(
 ) {
   const { searchParams } = new URL(request.url);
   const viewerId = searchParams.get("viewerId");
-  const cacheControl = viewerId
-    ? PRIVATE_EVENT_DETAIL_CACHE_CONTROL
-    : PUBLIC_EVENT_DETAIL_CACHE_CONTROL;
   const { id } = await params;
   const event = await prisma.event.findUnique({
     where: { id },
@@ -58,7 +52,7 @@ export async function GET(
     });
   }
 
-  const participants = event.participants.map((participant) => ({
+  const participants = event.participants.map((participant: any) => ({
     userId: participant.userId,
     displayName: participant.user.displayName,
     avatarIcon: participant.user.avatarIcon,
@@ -67,11 +61,11 @@ export async function GET(
     invitedBy: inviterByInviteeId.get(participant.userId) ?? null,
   }));
 
-  const participantUserIds = new Set(participants.map((participant) => participant.userId));
+  const participantUserIds = new Set(participants.map((participant: any) => participant.userId));
 
   const pendingInviteeIds = new Set<string>();
   const invitedUsers = event.invites
-    .filter((invite) => {
+    .filter((invite: any) => {
       if (invite.status !== "pending") return false;
       if (!invite.inviteeId) return false;
       if (participantUserIds.has(invite.inviteeId)) return false;
@@ -79,7 +73,7 @@ export async function GET(
       pendingInviteeIds.add(invite.inviteeId);
       return true;
     })
-    .map((invite) => ({
+    .map((invite: any) => ({
       userId: invite.inviteeId as string,
       displayName: invite.invitee?.displayName ?? "招待中ユーザー",
       avatarIcon: invite.invitee?.avatarIcon ?? null,
@@ -93,10 +87,10 @@ export async function GET(
     }));
 
   const timeCandidates = event.timeCandidates
-    .map((candidate) => {
-      const availableVotes = candidate.votes.filter((vote) => vote.isAvailable).length;
+    .map((candidate: any) => {
+      const availableVotes = candidate.votes.filter((vote: any) => vote.isAvailable).length;
       const myVote = viewerId
-        ? candidate.votes.find((vote) => vote.userId === viewerId)
+        ? candidate.votes.find((vote: any) => vote.userId === viewerId)
         : undefined;
       return {
         id: candidate.id,
@@ -109,15 +103,15 @@ export async function GET(
         myAvailability: myVote?.isAvailable ?? null,
       };
     })
-    .sort((a, b) => b.score - a.score)
+    .sort((a: any, b: any) => b.score - a.score)
     .slice(0, 3);
 
   const placeCandidates = (
     await Promise.all(
-      event.placeCandidates.map(async (candidate) => {
-        const totalScore = candidate.votes.reduce((acc, vote) => acc + vote.score, 0);
+      event.placeCandidates.map(async (candidate: any) => {
+        const totalScore = candidate.votes.reduce((acc: number, vote: any) => acc + vote.score, 0);
         const myVote = viewerId
-          ? candidate.votes.find((vote) => vote.userId === viewerId)
+          ? candidate.votes.find((vote: any) => vote.userId === viewerId)
           : undefined;
         const photoUrl = await getPlacePhotoUrlByPlaceId(candidate.placeId);
         return {
@@ -140,7 +134,7 @@ export async function GET(
       })
     )
   )
-    .sort((a, b) => b.score - a.score)
+    .sort((a: any, b: any) => b.score - a.score)
     .slice(0, 5);
 
   const eventArea = (event as { area?: string | null }).area ?? null;
@@ -151,7 +145,7 @@ export async function GET(
     requester: { userId: string; displayName: string; avatarIcon?: string | null };
     invitee: { userId: string; displayName: string; avatarIcon?: string | null };
     createdAt: Date;
-  }> }).inviteRequests ?? []).map((request) => ({
+  }> }).inviteRequests ?? []).map((request: any) => ({
     id: request.id,
     requester: {
       userId: request.requester.userId,
@@ -194,7 +188,7 @@ export async function GET(
     },
     {
       headers: {
-        "Cache-Control": cacheControl,
+        "Cache-Control": EVENT_DETAIL_CACHE_CONTROL,
       },
     }
   );
@@ -330,14 +324,14 @@ export async function PATCH(
 
   const notifyUserIds = event.participants
     .filter(
-      (participant) =>
+      (participant: any) =>
         participant.userId !== event.ownerId && participant.status === "approved"
     )
-    .map((participant) => participant.userId);
+    .map((participant: any) => participant.userId);
 
   if (notifyUserIds.length > 0) {
     await createAppNotifications(
-      notifyUserIds.map((userId) => ({
+      notifyUserIds.map((userId: string) => ({
         userId,
         type: "event_confirmed",
         title: "イベント情報が更新されました",
@@ -379,16 +373,16 @@ export async function DELETE(
 
   const notifyUserIds = event.participants
     .filter(
-      (participant) =>
+      (participant: any) =>
         participant.userId !== event.ownerId &&
         participant.status !== "declined" &&
         participant.status !== "cancelled"
     )
-    .map((participant) => participant.userId);
+    .map((participant: any) => participant.userId);
 
   if (notifyUserIds.length > 0) {
     await createAppNotifications(
-      notifyUserIds.map((userId) => ({
+      notifyUserIds.map((userId: string) => ({
         userId,
         type: "invite_received",
         title: "イベントが削除されました",
