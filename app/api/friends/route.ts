@@ -38,11 +38,13 @@ export async function GET(request: Request) {
     where: { userId },
     select: { favoriteUserId: true },
   });
-  const favoriteUserIds = new Set(favoriteLinks.map((favorite) => favorite.favoriteUserId));
+  const favoriteUserIds = new Set(
+    favoriteLinks.map((favorite: { favoriteUserId: string }) => favorite.favoriteUserId)
+  );
 
   const normalizedEventArea = normalizeArea(eventArea);
   const sortedFriends = friends
-    .map((friend) => {
+    .map((friend: any) => {
       const area = friend.friend.favoriteAreas[0] ?? null;
       const isFavorite = favoriteUserIds.has(friend.friend.userId);
 
@@ -54,7 +56,7 @@ export async function GET(request: Request) {
         isFavorite,
       };
     })
-    .sort((a, b) => {
+    .sort((a: any, b: any) => {
       const sameAreaA =
         normalizedEventArea.length > 0 && normalizeArea(a.area) === normalizedEventArea;
       const sameAreaB =

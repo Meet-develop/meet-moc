@@ -69,8 +69,17 @@ export function MobileBottomNav() {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUserId(session?.user?.id ?? null);
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session?.user?.id) {
+        setUserId(session.user.id);
+        setIsSessionChecked(true);
+        return;
+      }
+
+      // Guard against transient null sessions on slower mobile browsers.
+      const { data } = await supabase.auth.getSession();
+      if (!active) return;
+      setUserId(data.session?.user?.id ?? null);
       setIsSessionChecked(true);
     });
 
@@ -87,7 +96,8 @@ export function MobileBottomNav() {
 
     const loadProfile = async () => {
       const response = await fetch(
-        `/api/profiles/${userId}?viewerId=${encodeURIComponent(userId)}`
+        `/api/profiles/${userId}?viewerId=${encodeURIComponent(userId)}`,
+        { cache: "no-store" }
       );
       if (!active) return;
 

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
-import { clearRecentAuth, hasRecentAuth } from "@/lib/auth/recent-auth";
+import { RegisterServiceWorker } from "@/components/pwa/register-service-worker";
 
 const isEventDetailPath = (pathname: string) => /^\/events\/[^/]+\/?$/.test(pathname);
 
@@ -37,8 +37,17 @@ export function Providers({ children }: { children: ReactNode }) {
 
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setIsAuthenticated(Boolean(session));
+    } = supabase.auth.onAuthStateChange(async (_event, session) => {
+      if (session) {
+        setIsAuthenticated(true);
+        setIsAuthChecked(true);
+        return;
+      }
+
+      // Guard against transient null session notifications.
+      const { data } = await supabase.auth.getSession();
+      if (!isMounted) return;
+      setIsAuthenticated(Boolean(data.session));
       setIsAuthChecked(true);
     });
 
@@ -50,41 +59,17 @@ export function Providers({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     if (!isAuthChecked || isPublicPath || isAuthenticated) return;
-    if (!hasRecentAuth()) {
-      router.replace("/login");
-      return;
-    }
-
-    let cancelled = false;
-    const timerId = window.setTimeout(async () => {
-      const { data } = await supabase.auth.getSession();
-      if (cancelled) return;
-
-      if (data.session) {
-        setIsAuthenticated(true);
-        clearRecentAuth();
-        return;
-      }
-
-      clearRecentAuth();
-      router.replace("/login");
-    }, 400);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timerId);
-    };
+    router.replace("/login");
   }, [isAuthChecked, isAuthenticated, isPublicPath, router]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      clearRecentAuth();
-    }
-  }, [isAuthenticated]);
 
   if (!isPublicPath && (!isAuthChecked || !isAuthenticated)) {
     return null;
   }
 
-  return <>{children}</>;
+  return (
+    <>
+      {children}
+      <RegisterServiceWorker />
+    </>
+  );
 }

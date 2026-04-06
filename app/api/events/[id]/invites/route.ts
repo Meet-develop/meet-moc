@@ -41,7 +41,7 @@ export async function POST(
   const actorCanInvite =
     body.actorId === event.ownerId ||
     event.participants.some(
-      (participant) =>
+      (participant: { userId: string; status: string }) =>
         participant.userId === body.actorId && participant.status === "approved"
     );
   if (!actorCanInvite) {
@@ -91,12 +91,17 @@ export async function POST(
     (friendId) => friendId !== event.ownerId
   );
 
-  const existingParticipantIds = new Set(event.participants.map((p) => p.userId));
+  const existingParticipantIds = new Set(
+    event.participants.map((participant: { userId: string }) => participant.userId)
+  );
   const existingInviteeIds = new Set(
     event.invites
-      .filter((invite) => invite.status === "pending" || invite.status === "accepted")
-      .map((invite) => invite.inviteeId)
-      .filter((value): value is string => Boolean(value))
+      .filter(
+        (invite: { status: string; inviteeId: string | null }) =>
+          invite.status === "pending" || invite.status === "accepted"
+      )
+      .map((invite: { inviteeId: string | null }) => invite.inviteeId)
+      .filter((value: string | null): value is string => Boolean(value))
   );
 
   const targetIds = friendIds.filter(
