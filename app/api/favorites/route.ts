@@ -17,7 +17,7 @@ export async function GET(request: Request) {
   });
 
   return NextResponse.json(
-    favorites.map((favorite) => ({
+    favorites.map((favorite: any) => ({
       userId: favorite.favoriteUser.userId,
       displayName: favorite.favoriteUser.displayName,
       avatarIcon: favorite.favoriteUser.avatarIcon,

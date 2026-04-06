@@ -106,7 +106,9 @@ const buildDefaultTimeCandidates = (availability?: {
 
   const startRange = availability?.timeRanges?.[0]?.start ?? "19:00";
   const endRange = availability?.timeRanges?.[0]?.end ?? "22:00";
-  const availableDays = availability?.days?.map((day) => dayIndex[day]).filter((day) => day !== undefined);
+  const availableDays = availability?.days
+    ?.map((day: string) => dayIndex[day])
+    .filter((day: number | undefined) => day !== undefined);
   let offset = 1;
 
   while (candidates.length < 3 && offset < 14) {
@@ -148,7 +150,7 @@ const buildPlaceCandidates = async (query: string): Promise<PlaceCandidateInput[
     return normalized;
   }
 
-  return Array.from({ length: 3 }).map((_, index) => ({
+  return Array.from({ length: 3 }).map((_: unknown, index: number) => ({
     placeId: `${query}-fallback-${index + 1}`,
     name: `${query} 候補${index + 1}`,
     address: "未設定",
@@ -191,7 +193,7 @@ const getEventStartTime = (event: {
   if (event.timeCandidates.length === 0) return null;
 
   const earliestTime = Math.min(
-    ...event.timeCandidates.map((candidate) => candidate.startTime.getTime())
+    ...event.timeCandidates.map((candidate: { startTime: Date }) => candidate.startTime.getTime())
   );
   return Number.isFinite(earliestTime) ? new Date(earliestTime) : null;
 };
@@ -264,29 +266,29 @@ export async function GET(request: Request) {
       where: { userId: viewerId },
       select: { favoriteUserId: true },
     });
-    favoriteOwnerIds = new Set(favorites.map((favorite) => favorite.favoriteUserId));
+    favoriteOwnerIds = new Set(favorites.map((favorite: any) => favorite.favoriteUserId));
   }
 
   const formatted = events
-    .filter((event) => {
+    .filter((event: any) => {
       if (!viewerId) {
         return event.visibility === "public";
       }
 
       const isOwner = event.ownerId === viewerId;
-      const isParticipant = event.participants.some((participant) => participant.userId === viewerId);
-      const isInvited = event.invites.some((invite) => invite.inviteeId === viewerId);
+      const isParticipant = event.participants.some((participant: any) => participant.userId === viewerId);
+      const isInvited = event.invites.some((invite: any) => invite.inviteeId === viewerId);
       return event.visibility === "public" || isOwner || isParticipant || isInvited;
     })
-    .map((event) => {
+    .map((event: any) => {
       const eventArea = (event as { area?: string | null }).area ?? null;
       const approvedCount = event.participants.filter(
-        (participant) => participant.status === "approved"
+        (participant: any) => participant.status === "approved"
       ).length;
       const isOwner = viewerId ? event.ownerId === viewerId : false;
       const isJoinedParticipant = viewerId
         ? event.participants.some(
-            (participant) =>
+            (participant: any) =>
               participant.userId === viewerId &&
               participant.status !== "declined" &&
               participant.status !== "cancelled"
@@ -294,22 +296,24 @@ export async function GET(request: Request) {
         : false;
       const pendingInvite = viewerId
         ? event.invites.find(
-            (invite) => invite.inviteeId === viewerId && (invite.status === "pending" || invite.status === "accepted")
+            (invite: any) =>
+              invite.inviteeId === viewerId &&
+              (invite.status === "pending" || invite.status === "accepted")
           )
         : undefined;
       const timeCandidates = [...event.timeCandidates]
-        .sort((a, b) => b.score - a.score)
+        .sort((a: any, b: any) => b.score - a.score)
         .slice(0, 3)
-        .map((candidate) => ({
+        .map((candidate: any) => ({
           id: candidate.id,
           startTime: candidate.startTime,
           endTime: candidate.endTime,
           score: candidate.score,
         }));
       const placeCandidates = [...event.placeCandidates]
-        .sort((a, b) => b.score - a.score)
+        .sort((a: any, b: any) => b.score - a.score)
         .slice(0, 3)
-        .map((candidate) => ({
+        .map((candidate: any) => ({
           id: candidate.id,
           name: candidate.name,
           address: candidate.address,
@@ -338,8 +342,8 @@ export async function GET(request: Request) {
         },
         approvedCount,
         participantUserIds: event.participants
-          .filter((participant) => participant.status === "approved")
-          .map((participant) => participant.userId),
+          .filter((participant: any) => participant.status === "approved")
+          .map((participant: any) => participant.userId),
         timeCandidates,
         placeCandidates,
         isFavoriteOwner: viewerId ? favoriteOwnerIds.has(event.ownerId) : false,
@@ -351,7 +355,7 @@ export async function GET(request: Request) {
         createdAt: event.createdAt,
       };
     })
-    .sort((a, b) => {
+    .sort((a: any, b: any) => {
       if (a.isFavoriteOwner && !b.isFavoriteOwner) return -1;
       if (!a.isFavoriteOwner && b.isFavoriteOwner) return 1;
       return 0;
@@ -362,7 +366,7 @@ export async function GET(request: Request) {
   if (includePast) {
     const history = formatted
       .filter(
-        (event) =>
+        (event: any) =>
           event.viewerRelation === "participating" &&
           event.status !== "cancelled" &&
           event.startTime != null &&
@@ -370,7 +374,7 @@ export async function GET(request: Request) {
           (!periodStart || new Date(event.startTime).getTime() >= periodStart.getTime())
       )
       .sort(
-        (a, b) =>
+        (a: any, b: any) =>
           new Date(b.startTime as Date).getTime() -
           new Date(a.startTime as Date).getTime()
       );
@@ -388,13 +392,13 @@ export async function GET(request: Request) {
   }
 
   const upcoming = formatted.filter(
-    (event) =>
+    (event: any) =>
       event.startTime == null || new Date(event.startTime).getTime() > now
   );
 
-  const participating = upcoming.filter((event) => event.viewerRelation === "participating");
-  const invited = upcoming.filter((event) => event.viewerRelation === "invited");
-  const publicEvents = upcoming.filter((event) => event.viewerRelation === "public");
+  const participating = upcoming.filter((event: any) => event.viewerRelation === "participating");
+  const invited = upcoming.filter((event: any) => event.viewerRelation === "invited");
+  const publicEvents = upcoming.filter((event: any) => event.viewerRelation === "public");
 
   return NextResponse.json(
     {
@@ -589,7 +593,7 @@ export async function POST(request: Request) {
           | undefined
       );
       await prisma.eventTimeCandidate.createMany({
-        data: timeCandidates.map((candidate) => ({
+        data: timeCandidates.map((candidate: any) => ({
           eventId: event.id,
           ...candidate,
         })),
@@ -599,7 +603,7 @@ export async function POST(request: Request) {
     if (!isPlaceManual) {
       if (body.candidatePlaces && body.candidatePlaces.length > 0) {
         await prisma.eventPlaceCandidate.createMany({
-          data: body.candidatePlaces.slice(0, 5).map((candidate) => ({
+          data: body.candidatePlaces.slice(0, 5).map((candidate: any) => ({
             eventId: event.id,
             placeId: candidate.placeId,
             name: candidate.name,
@@ -616,7 +620,7 @@ export async function POST(request: Request) {
           ? [
               resolvedEventArea,
               ...(ownerProfile?.favoriteAreas ?? []).filter(
-                (area) => area !== resolvedEventArea
+                (area: string) => area !== resolvedEventArea
               ),
             ]
           : ownerProfile?.favoriteAreas ?? [];
@@ -645,7 +649,7 @@ export async function POST(request: Request) {
 
         if (placeCandidates.length > 0) {
           await prisma.eventPlaceCandidate.createMany({
-            data: placeCandidates.map((candidate) => ({
+            data: placeCandidates.map((candidate: any) => ({
               eventId: event.id,
               ...candidate,
             })),
@@ -657,7 +661,7 @@ export async function POST(request: Request) {
 
   if (body.inviteeIds && body.inviteeIds.length > 0) {
     await prisma.eventInvite.createMany({
-      data: body.inviteeIds.map((inviteeId) => ({
+      data: body.inviteeIds.map((inviteeId: string) => ({
         eventId: event.id,
         inviterId: body.ownerId as string,
         inviteeId,

@@ -87,7 +87,7 @@ export async function GET(
   ]);
 
   const friendCount = new Set(
-    friendships.map((friendship) =>
+    friendships.map((friendship: { userId: string; friendId: string }) =>
       friendship.userId === id ? friendship.friendId : friendship.userId
     )
   ).size;
