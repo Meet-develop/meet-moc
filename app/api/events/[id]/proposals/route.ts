@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
+import { parseIsoDateTimeWithTimeZone } from "@/lib/datetime";
 
 export async function POST(
   request: Request,
@@ -75,7 +76,16 @@ export async function POST(
       );
     }
 
-    const start = new Date(body.startTime);
+    const start = parseIsoDateTimeWithTimeZone(body.startTime);
+    if (!start) {
+      return NextResponse.json(
+        {
+          message:
+            "startTime must include timezone offset or Z (ISO 8601), e.g. 2026-04-10T10:00:00.000Z",
+        },
+        { status: 400 }
+      );
+    }
     const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
 
     const candidate = await prisma.eventTimeCandidate.create({

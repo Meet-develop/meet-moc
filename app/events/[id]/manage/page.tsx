@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { AvatarName } from "@/components/ui/avatar-name";
+import { formatEventStartLabel } from "@/lib/datetime";
 
 type EventDetail = {
   id: string;
@@ -42,14 +43,7 @@ type EventDetail = {
 };
 
 const formatStart = (start: string) => {
-  const startDate = new Date(start);
-  return `${startDate.toLocaleDateString("ja-JP", {
-    month: "short",
-    day: "numeric",
-  })} ${startDate.toLocaleTimeString("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
+  return formatEventStartLabel(start);
 };
 
 export default function EventManagePage() {
