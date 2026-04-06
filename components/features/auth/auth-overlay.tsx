@@ -37,6 +37,8 @@ export function AuthOverlay({
     : ["line", "custom:line"];
   const lineScopes =
     process.env.NEXT_PUBLIC_SUPABASE_LINE_SCOPES?.trim() || "openid profile";
+  const lineBotPrompt =
+    process.env.NEXT_PUBLIC_LINE_BOT_PROMPT?.trim() || "aggressive";
   const hasSupabaseConfig = Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL &&
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
@@ -87,6 +89,9 @@ export function AuthOverlay({
         options: {
           redirectTo,
           scopes: lineScopes,
+          queryParams: {
+            bot_prompt: lineBotPrompt,
+          },
         },
       });
 

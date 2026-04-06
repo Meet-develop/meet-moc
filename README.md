@@ -26,6 +26,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY="<YOUR_SUPABASE_ANON_KEY>"
 GOOGLE_PLACES_API_KEY="<YOUR_GOOGLE_PLACES_API_KEY>"
 APP_ORIGIN="http://localhost:3000"
 
+# LINEログイン用
+# Supabase標準LINE Provider: line
+# Custom OIDC Provider: custom:<provider-id>
+NEXT_PUBLIC_SUPABASE_LINE_PROVIDER="custom:line"
+NEXT_PUBLIC_SUPABASE_LINE_SCOPES="openid profile"
+# ログイン時の友だち追加導線（normal / aggressive）
+NEXT_PUBLIC_LINE_BOT_PROMPT="aggressive"
+
 # Docker ローカルDBを使う場合は DATABASE_URL をコメントアウトのままにする
 # DATABASE_URL="postgresql://postgres:<YOUR_SUPABASE_DB_PASSWORD>@db.<YOUR_PROJECT_REF>.supabase.co:5432/postgres?sslmode=require&pgbouncer=true"
 ```
@@ -80,6 +88,14 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY="<YOUR_SUPABASE_ANON_KEY>"
 GOOGLE_PLACES_API_KEY="<YOUR_GOOGLE_PLACES_API_KEY>"
 APP_ORIGIN="http://localhost:3000"
 
+# LINEログイン用
+# Supabase標準LINE Provider: line
+# Custom OIDC Provider: custom:<provider-id>
+NEXT_PUBLIC_SUPABASE_LINE_PROVIDER="custom:line"
+NEXT_PUBLIC_SUPABASE_LINE_SCOPES="openid profile"
+# ログイン時の友だち追加導線（normal / aggressive）
+NEXT_PUBLIC_LINE_BOT_PROMPT="aggressive"
+
 # Supabase DB を使う場合のみ有効化
 DATABASE_URL="postgresql://postgres:<YOUR_SUPABASE_DB_PASSWORD>@db.<YOUR_PROJECT_REF>.supabase.co:5432/postgres?sslmode=require&pgbouncer=true"
 
@@ -95,6 +111,19 @@ Supabase Dashboard で以下を設定します。
 	- `http://localhost:3000`
 - Authentication -> URL Configuration -> Additional Redirect URLs
 	- `http://localhost:3000/auth/callback`
+
+### 3.1 ログイン時に公式LINEを追加する（任意）
+
+LINE Developers で次を設定すると、LINEログイン時に公式LINEの友だち追加を表示できます。
+
+- LINE Login チャネルと Messaging API チャネルを同一 Provider 配下にする
+- LINE Login チャネルの Linked LINE Official Account で通知用公式アカウントをリンクする
+- アプリ側で `NEXT_PUBLIC_LINE_BOT_PROMPT` を `normal` または `aggressive` に設定する
+
+注意:
+
+- 友だち追加の表示と、通知配信先の `lineUserId` 紐付けは別問題です。
+- チャネルが分かれている構成では、Webhook + アカウント連携フローでユーザー紐付けが必要になる場合があります。
 
 ### 4. DB スキーマ適用（Prisma）
 
