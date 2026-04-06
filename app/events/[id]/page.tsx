@@ -7,6 +7,10 @@ import { useParams, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { AvatarName } from "@/components/ui/avatar-name";
 import { AuthOverlay } from "@/components/features/auth/auth-overlay";
+import {
+  formatEventStartLabel,
+  toIsoUtcStringFromLocalDateTime,
+} from "@/lib/datetime";
 
 type EventDetail = {
   id: string;
@@ -89,15 +93,7 @@ const plusButtonClass =
 
 const formatStart = (start?: string | null) => {
   if (!start) return "未確定";
-  const startDate = new Date(start);
-  return `${startDate.toLocaleDateString("ja-JP", {
-    month: "short",
-    day: "numeric",
-    weekday: "short",
-  })} ${startDate.toLocaleTimeString("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
+  return formatEventStartLabel(start, true);
 };
 
 const getCandidateDeadline = (event: EventDetail, nowTs: number) => {
@@ -590,10 +586,20 @@ export default function EventDetailPage() {
     ) {
       return;
     }
+
+    const normalizedStartTime = toIsoUtcStringFromLocalDateTime(startTime);
+    if (!normalizedStartTime) {
+      return;
+    }
+
     await fetch(`/api/events/${eventId}/proposals`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, type: "time", startTime }),
+      body: JSON.stringify({
+        userId,
+        type: "time",
+        startTime: normalizedStartTime,
+      }),
     });
     const query = userId ? `?viewerId=${userId}` : "";
     const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });

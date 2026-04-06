@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AvatarName, getAvatarToneClass, isImageAvatar } from "@/components/ui/avatar-name";
 import { supabase } from "@/lib/supabase/client";
+import { formatEventStartLabel } from "@/lib/datetime";
 
 type ProfileStats = {
   hostedCount: number;
@@ -37,14 +38,7 @@ type SharedEvent = {
 
 const formatStart = (start?: string | null) => {
   if (!start) return "候補から決定";
-  const startDate = new Date(start);
-  return `${startDate.toLocaleDateString("ja-JP", {
-    month: "short",
-    day: "numeric",
-  })} ${startDate.toLocaleTimeString("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
+  return formatEventStartLabel(start);
 };
 
 const defaultStats: ProfileStats = {

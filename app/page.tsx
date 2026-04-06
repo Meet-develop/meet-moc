@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 import { AvatarName } from "@/components/ui/avatar-name";
 import { consumeFeedRefreshNeeded } from "@/lib/feed-refresh";
+import { formatEventStartLabel } from "@/lib/datetime";
 
 type EventSummary = {
   id: string;
@@ -33,14 +34,7 @@ type FeedResponse = {
 
 const formatStart = (start?: string | null) => {
   if (!start) return "候補から決定";
-  const startDate = new Date(start);
-  return `${startDate.toLocaleDateString("ja-JP", {
-    month: "short",
-    day: "numeric",
-  })} ${startDate.toLocaleTimeString("ja-JP", {
-    hour: "2-digit",
-    minute: "2-digit",
-  })}`;
+  return formatEventStartLabel(start);
 };
 
 export default function HomePage() {

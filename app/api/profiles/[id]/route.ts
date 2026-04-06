@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { hasAnyWeekdayAvailability } from "@/lib/availability";
 
 const PROFILE_CACHE_CONTROL = "no-store, max-age=0";
 
@@ -25,7 +26,7 @@ const calcProfileCompletion = (profile: {
     profile.ngFoods.length > 0,
     profile.favoriteAreas.length > 0,
     profile.favoritePlaces.length > 0,
-    Boolean(profile.availability),
+    hasAnyWeekdayAvailability(profile.availability),
   ];
 
   const done = checks.filter(Boolean).length;

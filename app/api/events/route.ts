@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getPlacesForQuery } from "@/lib/places";
+import {
+  createUtcDateFromJstVirtualDate,
+  getJstVirtualDateAtOffset,
+  parseIsoDateTimeWithTimeZone,
+} from "@/lib/datetime";
+import { hasAnyWeekdayAvailability } from "@/lib/availability";
 
 const dayIndex: Record<string, number> = {
   sun: 0,
@@ -66,9 +72,8 @@ const buildDefaultTimeCandidates = (availability?: {
   if (weekdaySlots) {
     let offset = 1;
     while (candidates.length < 3 && offset < 21) {
-      const date = new Date(now);
-      date.setDate(now.getDate() + offset);
-      const dayKey = weekdayKeyByIndex[date.getDay()];
+      const jstVirtualDate = getJstVirtualDateAtOffset(now, offset);
+      const dayKey = weekdayKeyByIndex[jstVirtualDate.getUTCDay()];
       if (!dayKey) {
         offset += 1;
         continue;
@@ -81,18 +86,14 @@ const buildDefaultTimeCandidates = (availability?: {
       }
 
       if (slot.daytime && candidates.length < 3) {
-        const start = new Date(date);
-        start.setHours(13, 0, 0, 0);
-        const end = new Date(start);
-        end.setHours(15, 0, 0, 0);
+        const start = createUtcDateFromJstVirtualDate(jstVirtualDate, 13, 0);
+        const end = createUtcDateFromJstVirtualDate(jstVirtualDate, 15, 0);
         candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
       }
 
       if (slot.night && candidates.length < 3) {
-        const start = new Date(date);
-        start.setHours(19, 0, 0, 0);
-        const end = new Date(start);
-        end.setHours(21, 0, 0, 0);
+        const start = createUtcDateFromJstVirtualDate(jstVirtualDate, 19, 0);
+        const end = createUtcDateFromJstVirtualDate(jstVirtualDate, 21, 0);
         candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
       }
 
@@ -112,30 +113,34 @@ const buildDefaultTimeCandidates = (availability?: {
   let offset = 1;
 
   while (candidates.length < 3 && offset < 14) {
-    const date = new Date(now);
-    date.setDate(now.getDate() + offset);
-    if (availableDays && availableDays.length > 0 && !availableDays.includes(date.getDay())) {
+    const jstVirtualDate = getJstVirtualDateAtOffset(now, offset);
+    const jstDayIndex = jstVirtualDate.getUTCDay();
+    if (availableDays && availableDays.length > 0 && !availableDays.includes(jstDayIndex)) {
       offset += 1;
       continue;
     }
 
     const [startHour, startMinute] = startRange.split(":").map(Number);
     const [endHour, endMinute] = endRange.split(":").map(Number);
-    const start = new Date(date);
-    start.setHours(startHour || 19, startMinute || 0, 0, 0);
-    const end = new Date(date);
-    end.setHours(endHour || 22, endMinute || 0, 0, 0);
+    const start = createUtcDateFromJstVirtualDate(
+      jstVirtualDate,
+      startHour || 19,
+      startMinute || 0
+    );
+    const end = createUtcDateFromJstVirtualDate(
+      jstVirtualDate,
+      endHour || 22,
+      endMinute || 0
+    );
 
     candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
     offset += 1;
   }
 
   if (candidates.length === 0) {
-    const fallback = new Date(now);
-    fallback.setDate(now.getDate() + 1);
-    fallback.setHours(19, 0, 0, 0);
-    const end = new Date(fallback);
-    end.setHours(22, 0, 0, 0);
+    const fallbackVirtualDate = getJstVirtualDateAtOffset(now, 1);
+    const fallback = createUtcDateFromJstVirtualDate(fallbackVirtualDate, 19, 0);
+    const end = createUtcDateFromJstVirtualDate(fallbackVirtualDate, 22, 0);
     return [{ startTime: fallback, endTime: end, score: 0, source: "system" as const }];
   }
 
@@ -220,7 +225,7 @@ const calcProfileCompletion = (profile: {
     profile.ngFoods.length > 0,
     profile.favoriteAreas.length > 0,
     profile.favoritePlaces.length > 0,
-    Boolean(profile.availability),
+    hasAnyWeekdayAvailability(profile.availability),
   ];
 
   const done = checks.filter(Boolean).length;
@@ -505,7 +510,19 @@ export async function POST(request: Request) {
   const resolvedEventArea =
     normalizedEventArea || ownerProfile?.favoriteAreas?.[0] || null;
 
-  const fixedStartDate = body.fixedStartTime ? new Date(body.fixedStartTime) : undefined;
+  const fixedStartDate =
+    isTimeManual && body.fixedStartTime
+      ? (parseIsoDateTimeWithTimeZone(body.fixedStartTime) ?? undefined)
+      : undefined;
+  if (isTimeManual && !fixedStartDate) {
+    return NextResponse.json(
+      {
+        message:
+          "fixedStartTime must include timezone offset or Z (ISO 8601), e.g. 2026-04-10T10:00:00.000Z",
+      },
+      { status: 400 }
+    );
+  }
   const fixedEndDate = fixedStartDate
     ? new Date(fixedStartDate.getTime() + 2 * 60 * 60 * 1000)
     : undefined;

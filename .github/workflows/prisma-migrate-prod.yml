@@ -1,0 +1,36 @@
+name: Prisma Migrate Production
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - prisma/schema.prisma
+      - prisma/migrations/**
+      - scripts/prisma-migrate-guard.cjs
+      - package.json
+
+jobs:
+  migrate-prod:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Prisma generate
+        run: npm run db:generate
+
+      - name: Prisma migrate deploy (production)
+        env:
+          DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          DIRECT_URL: ${{ secrets.PROD_DIRECT_URL }}
+        run: npm run db:migrate:prod
