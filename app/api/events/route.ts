@@ -1,35 +1,13 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getPlacesForQuery } from "@/lib/places";
-import {
-  createUtcDateFromJstVirtualDate,
-  getJstVirtualDateAtOffset,
-  parseIsoDateTimeWithTimeZone,
-} from "@/lib/datetime";
+import { parseIsoDateTimeWithTimeZone } from "@/lib/datetime";
 import { hasAnyWeekdayAvailability } from "@/lib/availability";
-
-const dayIndex: Record<string, number> = {
-  sun: 0,
-  mon: 1,
-  tue: 2,
-  wed: 3,
-  thu: 4,
-  fri: 5,
-  sat: 6,
-};
-
-const weekdayKeyByIndex: Record<
-  number,
-  "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun" | undefined
-> = {
-  0: "sun",
-  1: "mon",
-  2: "tue",
-  3: "wed",
-  4: "thu",
-  5: "fri",
-  6: "sat",
-};
+import {
+  buildDayPriorityByWeekday,
+  buildDefaultTimeCandidates,
+  type AvailabilityInput,
+} from "@/lib/event-time-candidates";
 
 type PlaceCandidateInput = {
   placeId: string;
@@ -59,93 +37,6 @@ const toPlaceCandidateInput = (place: {
   score: 0,
   source: "system",
 });
-
-const buildDefaultTimeCandidates = (availability?: {
-  weekdaySlots?: Record<string, { daytime?: boolean; night?: boolean }>;
-  days?: string[];
-  timeRanges?: { start: string; end: string }[];
-}) => {
-  const now = new Date();
-  const weekdaySlots = availability?.weekdaySlots;
-  const candidates: { startTime: Date; endTime: Date; score: number; source: "system" }[] = [];
-
-  if (weekdaySlots) {
-    let offset = 1;
-    while (candidates.length < 3 && offset < 21) {
-      const jstVirtualDate = getJstVirtualDateAtOffset(now, offset);
-      const dayKey = weekdayKeyByIndex[jstVirtualDate.getUTCDay()];
-      if (!dayKey) {
-        offset += 1;
-        continue;
-      }
-
-      const slot = weekdaySlots[dayKey];
-      if (!slot?.daytime && !slot?.night) {
-        offset += 1;
-        continue;
-      }
-
-      if (slot.daytime && candidates.length < 3) {
-        const start = createUtcDateFromJstVirtualDate(jstVirtualDate, 13, 0);
-        const end = createUtcDateFromJstVirtualDate(jstVirtualDate, 15, 0);
-        candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
-      }
-
-      if (slot.night && candidates.length < 3) {
-        const start = createUtcDateFromJstVirtualDate(jstVirtualDate, 19, 0);
-        const end = createUtcDateFromJstVirtualDate(jstVirtualDate, 21, 0);
-        candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
-      }
-
-      offset += 1;
-    }
-  }
-
-  if (candidates.length > 0) {
-    return candidates.slice(0, 3);
-  }
-
-  const startRange = availability?.timeRanges?.[0]?.start ?? "19:00";
-  const endRange = availability?.timeRanges?.[0]?.end ?? "22:00";
-  const availableDays = availability?.days
-    ?.map((day: string) => dayIndex[day])
-    .filter((day: number | undefined) => day !== undefined);
-  let offset = 1;
-
-  while (candidates.length < 3 && offset < 14) {
-    const jstVirtualDate = getJstVirtualDateAtOffset(now, offset);
-    const jstDayIndex = jstVirtualDate.getUTCDay();
-    if (availableDays && availableDays.length > 0 && !availableDays.includes(jstDayIndex)) {
-      offset += 1;
-      continue;
-    }
-
-    const [startHour, startMinute] = startRange.split(":").map(Number);
-    const [endHour, endMinute] = endRange.split(":").map(Number);
-    const start = createUtcDateFromJstVirtualDate(
-      jstVirtualDate,
-      startHour || 19,
-      startMinute || 0
-    );
-    const end = createUtcDateFromJstVirtualDate(
-      jstVirtualDate,
-      endHour || 22,
-      endMinute || 0
-    );
-
-    candidates.push({ startTime: start, endTime: end, score: 0, source: "system" });
-    offset += 1;
-  }
-
-  if (candidates.length === 0) {
-    const fallbackVirtualDate = getJstVirtualDateAtOffset(now, 1);
-    const fallback = createUtcDateFromJstVirtualDate(fallbackVirtualDate, 19, 0);
-    const end = createUtcDateFromJstVirtualDate(fallbackVirtualDate, 22, 0);
-    return [{ startTime: fallback, endTime: end, score: 0, source: "system" as const }];
-  }
-
-  return candidates;
-};
 
 const buildPlaceCandidates = async (query: string): Promise<PlaceCandidateInput[]> => {
   const places = await getPlacesForQuery(query);
@@ -479,6 +370,17 @@ export async function POST(request: Request) {
     );
   }
 
+  const inviteeIds = Array.from(
+    new Set(
+      (body.inviteeIds ?? []).filter(
+        (inviteeId) =>
+          typeof inviteeId === "string" &&
+          inviteeId.trim().length > 0 &&
+          inviteeId !== body.ownerId
+      )
+    )
+  );
+
   let ownerProfile = await prisma.profile.findUnique({
     where: { userId: body.ownerId },
   });
@@ -600,14 +502,29 @@ export async function POST(request: Request) {
 
   if (resolvedScheduleMode === "candidate") {
     if (!isTimeManual) {
+      let inviteeAvailabilities: unknown[] = [];
+      if (inviteeIds.length > 0) {
+        const inviteeProfiles = await prisma.profile.findMany({
+          where: {
+            userId: {
+              in: inviteeIds,
+            },
+          },
+          select: {
+            availability: true,
+          },
+        });
+        inviteeAvailabilities = inviteeProfiles.map((profile) => profile.availability);
+      }
+
+      const dayPriorityByWeekday = buildDayPriorityByWeekday([
+        ownerProfile?.availability,
+        ...inviteeAvailabilities,
+      ]);
+
       const timeCandidates = buildDefaultTimeCandidates(
-        ownerProfile?.availability as
-          | {
-              weekdaySlots?: Record<string, { daytime?: boolean; night?: boolean }>;
-              days?: string[];
-              timeRanges?: { start: string; end: string }[];
-            }
-          | undefined
+        ownerProfile?.availability as AvailabilityInput | undefined,
+        dayPriorityByWeekday
       );
       await prisma.eventTimeCandidate.createMany({
         data: timeCandidates.map((candidate: any) => ({
@@ -676,9 +593,9 @@ export async function POST(request: Request) {
     }
   }
 
-  if (body.inviteeIds && body.inviteeIds.length > 0) {
+  if (inviteeIds.length > 0) {
     await prisma.eventInvite.createMany({
-      data: body.inviteeIds.map((inviteeId: string) => ({
+      data: inviteeIds.map((inviteeId: string) => ({
         eventId: event.id,
         inviterId: body.ownerId as string,
         inviteeId,
