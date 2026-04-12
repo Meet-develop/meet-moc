@@ -223,6 +223,7 @@ export async function GET(
   return NextResponse.json(
     {
       id: event.id,
+      updatedAt: event.updatedAt,
       purpose: event.purpose,
       comment: eventComment,
       area: eventArea,
