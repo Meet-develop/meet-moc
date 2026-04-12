@@ -330,16 +330,13 @@ export default function EventDetailPage() {
     event && isCandidateDeadlineExpired(event, nowTs)
   );
   const needsTimeCandidates = Boolean(isOpenCandidateEvent && !event?.fixedStartTime);
-<<<<<<< HEAD
   const needsPlaceCandidates = Boolean(
     isOpenCandidateEvent &&
       !event?.fixedPlaceId &&
       (event?.placeCandidates.length ?? 0) > 0
-=======
-  const needsPlaceCandidates = Boolean(isOpenCandidateEvent);
+  );
   const canDownloadCalendar = Boolean(
     event?.fixedStartTime || (event?.timeCandidates.length ?? 0) > 0
->>>>>>> 1d3d2a6 (カレンダー登録ボタンの配色変更)
   );
   const candidateActionsDisabled = Boolean(
     isOpenCandidateEvent && hasCandidateDeadlinePassed
