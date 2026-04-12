@@ -321,6 +321,12 @@ export async function PATCH(
     fixedPlaceAddress?: string | null;
   } = {};
 
+  const hasTimeSetting =
+    body.timeSetting === "auto" || body.timeSetting === "manual";
+  const hasPlaceSetting =
+    body.placeSetting === "auto" || body.placeSetting === "manual";
+  const hasFixedPlacePayload = body.fixedPlace !== undefined;
+
   const currentTimeSetting: "auto" | "manual" = event.fixedStartTime
     ? "manual"
     : "auto";
@@ -331,8 +337,8 @@ export async function PATCH(
     ? "manual"
     : "auto";
 
-  const nextTimeSetting = body.timeSetting ?? currentTimeSetting;
-  const nextPlaceSetting = body.placeSetting ?? currentPlaceSetting;
+  const nextTimeSetting = hasTimeSetting ? body.timeSetting : currentTimeSetting;
+  const nextPlaceSetting = hasPlaceSetting ? body.placeSetting : currentPlaceSetting;
   const derivedScheduleMode: "fixed" | "candidate" =
     nextTimeSetting === "manual" && nextPlaceSetting === "manual"
       ? "fixed"
@@ -364,7 +370,7 @@ export async function PATCH(
     updateData.capacity = Math.max(2, Math.floor(body.capacity));
   }
 
-  if (body.timeSetting === "manual") {
+  if (hasTimeSetting && body.timeSetting === "manual") {
     const sourceFixedStartTime =
       body.fixedStartTime ?? event.fixedStartTime?.toISOString();
     if (!sourceFixedStartTime) {
@@ -389,12 +395,12 @@ export async function PATCH(
     updateData.fixedEndTime = new Date(
       fixedStartTime.getTime() + 2 * 60 * 60 * 1000
     );
-  } else if (body.timeSetting === "auto") {
+  } else if (hasTimeSetting && body.timeSetting === "auto") {
     updateData.fixedStartTime = null;
     updateData.fixedEndTime = null;
   }
 
-  if (body.timeSetting || body.placeSetting) {
+  if (hasTimeSetting || hasPlaceSetting) {
     updateData.scheduleMode = derivedScheduleMode;
   }
 
@@ -402,7 +408,8 @@ export async function PATCH(
     nextTimeSetting === "auto" &&
     (currentTimeSetting === "manual" || event.timeCandidates.length === 0);
   const shouldDeleteTimeCandidates =
-    body.timeSetting === "manual" || shouldRegenerateTimeCandidates;
+    (hasTimeSetting && body.timeSetting === "manual") ||
+    shouldRegenerateTimeCandidates;
 
   const shouldRegeneratePlaceCandidates =
     nextPlaceSetting === "auto" &&
@@ -410,7 +417,49 @@ export async function PATCH(
 
   let shouldDeletePlaceCandidates = shouldRegeneratePlaceCandidates;
 
-  if (body.placeSetting === "manual") {
+  if (hasPlaceSetting && body.placeSetting === "manual") {
+    const sourceFixedPlace =
+      body.fixedPlace ??
+      (event.fixedPlaceId && event.fixedPlaceName && event.fixedPlaceAddress
+        ? {
+            placeId: event.fixedPlaceId,
+            name: event.fixedPlaceName,
+            address: event.fixedPlaceAddress,
+          }
+        : null);
+
+    const placeId = sourceFixedPlace?.placeId?.trim();
+    const placeName = sourceFixedPlace?.name?.trim();
+    const placeAddress = sourceFixedPlace?.address?.trim();
+
+    if (!placeId || !placeName || !placeAddress) {
+      return NextResponse.json(
+        { message: "fixedPlace is required when placeSetting is manual" },
+        { status: 400 }
+      );
+    }
+
+    const fixedPlaceChanged =
+      event.fixedPlaceId !== placeId ||
+      event.fixedPlaceName !== placeName ||
+      event.fixedPlaceAddress !== placeAddress;
+
+    if (fixedPlaceChanged) {
+      updateData.fixedPlaceId = placeId;
+      updateData.fixedPlaceName = placeName;
+      updateData.fixedPlaceAddress = placeAddress;
+    }
+
+    if (currentPlaceSetting !== "manual" || fixedPlaceChanged) {
+      shouldDeletePlaceCandidates = true;
+    }
+  } else if (hasPlaceSetting && body.placeSetting === "auto") {
+    if (currentPlaceSetting === "manual") {
+      updateData.fixedPlaceId = null;
+      updateData.fixedPlaceName = null;
+      updateData.fixedPlaceAddress = null;
+    }
+  } else if (hasFixedPlacePayload && nextPlaceSetting === "manual") {
     const placeId = body.fixedPlace?.placeId?.trim();
     const placeName = body.fixedPlace?.name?.trim();
     const placeAddress = body.fixedPlace?.address?.trim();
@@ -422,14 +471,17 @@ export async function PATCH(
       );
     }
 
-    updateData.fixedPlaceId = placeId;
-    updateData.fixedPlaceName = placeName;
-    updateData.fixedPlaceAddress = placeAddress;
-    shouldDeletePlaceCandidates = true;
-  } else if (body.placeSetting === "auto") {
-    updateData.fixedPlaceId = null;
-    updateData.fixedPlaceName = null;
-    updateData.fixedPlaceAddress = null;
+    const fixedPlaceChanged =
+      event.fixedPlaceId !== placeId ||
+      event.fixedPlaceName !== placeName ||
+      event.fixedPlaceAddress !== placeAddress;
+
+    if (fixedPlaceChanged) {
+      updateData.fixedPlaceId = placeId;
+      updateData.fixedPlaceName = placeName;
+      updateData.fixedPlaceAddress = placeAddress;
+      shouldDeletePlaceCandidates = true;
+    }
   }
 
   let updated;
