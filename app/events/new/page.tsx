@@ -232,6 +232,8 @@ function EventCreatePageContent() {
   const [isFocusMode, setIsFocusMode] = useState(() => !isEditMode);
 
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const submitLockRef = useRef(false);
 
   const purposeSectionRef = useRef<HTMLElement | null>(null);
   const visibilitySectionRef = useRef<HTMLElement | null>(null);
@@ -441,6 +443,7 @@ function EventCreatePageContent() {
   const isCreateDisabled =
     !userId ||
     isEditLoading ||
+    isSubmitting ||
     (isEditMode && editingOwnerId != null && editingOwnerId !== userId) ||
     (isEditMode && !hasEditChanges) ||
     !isProfileComplete ||
@@ -646,81 +649,91 @@ function EventCreatePageContent() {
   };
 
   const handleSubmit = async () => {
-    if (isCreateDisabled) return;
+    if (isCreateDisabled || submitLockRef.current) return;
 
-    if (isEditMode && !hasEditChanges) {
-      setSubmitMessage("変更がないため更新できません。");
-      return;
-    }
+    submitLockRef.current = true;
+    setIsSubmitting(true);
+    try {
+      if (isEditMode && !hasEditChanges) {
+        setSubmitMessage("変更がないため更新できません。");
+        return;
+      }
 
-    if (!isProfileComplete) {
-      setSubmitMessage("プロフィール設定が100%未満のため、イベントを作成できません。");
-      return;
-    }
+      if (!isProfileComplete) {
+        setSubmitMessage("プロフィール設定が100%未満のため、イベントを作成できません。");
+        return;
+      }
 
-    setSubmitMessage(null);
+      setSubmitMessage(null);
 
-    const normalizedFixedStart =
-      timeSetting === "manual"
-        ? toIsoUtcStringFromLocalDateTime(fixedStart)
-        : undefined;
-    if (timeSetting === "manual" && !normalizedFixedStart) {
-      setSubmitMessage("開始日時の形式が正しくありません。再入力してください。");
-      return;
-    }
+      const normalizedFixedStart =
+        timeSetting === "manual"
+          ? toIsoUtcStringFromLocalDateTime(fixedStart)
+          : undefined;
+      if (timeSetting === "manual" && !normalizedFixedStart) {
+        setSubmitMessage("開始日時の形式が正しくありません。再入力してください。");
+        return;
+      }
 
-    const requestBody = {
-      ownerId: userId,
-      purpose: resolvedTitle,
-      comment: eventComment,
-      visibility,
-      capacity,
-      scheduleMode: derivedScheduleMode,
-      timeSetting,
-      placeSetting,
-      fixedStartTime: normalizedFixedStart,
-      fixedPlace:
-        placeSetting === "manual" && selectedPlace
-          ? {
-              placeId: selectedPlace.placeId,
-              name: selectedPlace.name,
-              address: selectedPlace.address,
-            }
-          : undefined,
-      eventArea: selectedEventArea,
-      placeQuery: placeSetting === "auto" && placeQuery.trim() ? placeQuery : undefined,
-      candidatePlaces: placeSetting === "auto" ? candidatePlaces : undefined,
-      inviteeIds: selectedInvites,
-    };
+      const requestBody = {
+        ownerId: userId,
+        purpose: resolvedTitle,
+        comment: eventComment,
+        visibility,
+        capacity,
+        scheduleMode: derivedScheduleMode,
+        timeSetting,
+        placeSetting,
+        fixedStartTime: normalizedFixedStart,
+        fixedPlace:
+          placeSetting === "manual" && selectedPlace
+            ? {
+                placeId: selectedPlace.placeId,
+                name: selectedPlace.name,
+                address: selectedPlace.address,
+              }
+            : undefined,
+        eventArea: selectedEventArea,
+        placeQuery: placeSetting === "auto" && placeQuery.trim() ? placeQuery : undefined,
+        candidatePlaces: placeSetting === "auto" ? candidatePlaces : undefined,
+        inviteeIds: selectedInvites,
+      };
 
-    const response = await fetch(isEditMode && editEventId ? `/api/events/${editEventId}` : "/api/events", {
-      method: isEditMode && editEventId ? "PATCH" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(requestBody),
-    });
-
-    if (!response.ok) {
-      const error = (await response.json().catch(() => null)) as
-        | { message?: string }
-        | null;
-      setSubmitMessage(
-        error?.message ?? "イベントの作成に失敗しました。設定内容をご確認ください。"
+      const response = await fetch(
+        isEditMode && editEventId ? `/api/events/${editEventId}` : "/api/events",
+        {
+          method: isEditMode && editEventId ? "PATCH" : "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(requestBody),
+        }
       );
-      return;
-    }
 
-    const data = (await response.json()) as { id?: string; eventId?: string };
-    const nextEventId = isEditMode ? editEventId : data.id;
+      if (!response.ok) {
+        const error = (await response.json().catch(() => null)) as
+          | { message?: string }
+          | null;
+        setSubmitMessage(
+          error?.message ?? "イベントの作成に失敗しました。設定内容をご確認ください。"
+        );
+        return;
+      }
 
-    markFeedRefreshNeeded();
+      const data = (await response.json()) as { id?: string; eventId?: string };
+      const nextEventId = isEditMode ? editEventId : data.id;
 
-    if (nextEventId) {
-      router.push(`/events/${nextEventId}`);
-      return;
-    }
+      markFeedRefreshNeeded();
 
-    if (data.eventId) {
-      router.push(`/events/${data.eventId}`);
+      if (nextEventId) {
+        router.push(`/events/${nextEventId}`);
+        return;
+      }
+
+      if (data.eventId) {
+        router.push(`/events/${data.eventId}`);
+      }
+    } finally {
+      submitLockRef.current = false;
+      setIsSubmitting(false);
     }
   };
 
@@ -1157,8 +1170,16 @@ function EventCreatePageContent() {
                   disabled={isCreateDisabled}
                   className="mt-3 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-6 py-3 text-sm font-semibold text-white shadow-lg shadow-orange-200 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  <span className="material-symbols-rounded">rocket_launch</span>
-                  {isEditMode ? "更新する" : "作成する"}
+                  <span className="material-symbols-rounded">
+                    {isSubmitting ? "progress_activity" : "rocket_launch"}
+                  </span>
+                  {isSubmitting
+                    ? isEditMode
+                      ? "更新中..."
+                      : "作成中..."
+                    : isEditMode
+                      ? "更新する"
+                      : "作成する"}
                 </button>
               </div>
             )}

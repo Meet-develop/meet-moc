@@ -5,8 +5,18 @@ import { ReactNode } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { RegisterServiceWorker } from "@/components/pwa/register-service-worker";
+import {
+  RequestLoadingProvider,
+  useRequestLoading,
+} from "@/contexts/request-loading-context";
+import { RequestLoadingOverlay } from "@/components/ui/request-loading-overlay";
 
 const isEventDetailPath = (pathname: string) => /^\/events\/[^/]+\/?$/.test(pathname);
+
+function GlobalRequestLoadingOverlay() {
+  const { isOverlayVisible } = useRequestLoading();
+  return <RequestLoadingOverlay visible={isOverlayVisible} />;
+}
 
 export function Providers({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -67,9 +77,10 @@ export function Providers({ children }: { children: ReactNode }) {
   }
 
   return (
-    <>
+    <RequestLoadingProvider>
       {children}
       <RegisterServiceWorker />
-    </>
+      <GlobalRequestLoadingOverlay />
+    </RequestLoadingProvider>
   );
 }
