@@ -330,10 +330,16 @@ export default function EventDetailPage() {
     event && isCandidateDeadlineExpired(event, nowTs)
   );
   const needsTimeCandidates = Boolean(isOpenCandidateEvent && !event?.fixedStartTime);
+<<<<<<< HEAD
   const needsPlaceCandidates = Boolean(
     isOpenCandidateEvent &&
       !event?.fixedPlaceId &&
       (event?.placeCandidates.length ?? 0) > 0
+=======
+  const needsPlaceCandidates = Boolean(isOpenCandidateEvent);
+  const canDownloadCalendar = Boolean(
+    event?.fixedStartTime || (event?.timeCandidates.length ?? 0) > 0
+>>>>>>> 1d3d2a6 (カレンダー登録ボタンの配色変更)
   );
   const candidateActionsDisabled = Boolean(
     isOpenCandidateEvent && hasCandidateDeadlinePassed
@@ -848,13 +854,24 @@ export default function EventDetailPage() {
                 </button>
               </div>
             ) : isOwner ? (
-              <Link
-                href={`/events/${event.id}/manage`}
-                className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
-              >
-                <span className="material-symbols-rounded">settings</span>
-                オーナー管理
-              </Link>
+              <div className="w-full space-y-2 sm:w-auto">
+                <Link
+                  href={`/events/${event.id}/manage`}
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white"
+                >
+                  <span className="material-symbols-rounded">settings</span>
+                  オーナー管理
+                </Link>
+                {canDownloadCalendar && (
+                  <a
+                    href={`/api/events/${event.id}/calendar`}
+                    className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-orange-500 bg-white px-4 py-2 text-xs font-semibold text-orange-500 transition-colors hover:bg-orange-50"
+                  >
+                    <span className="material-symbols-rounded">calendar_add_on</span>
+                    カレンダーに登録
+                  </a>
+                )}
+              </div>
             ) : participantStatus === "approved" ? (
               <div className="w-full space-y-2 sm:w-auto">
                 <button
@@ -864,6 +881,15 @@ export default function EventDetailPage() {
                   <span className="material-symbols-rounded">check_circle</span>
                   参加登録済み
                 </button>
+                {canDownloadCalendar && (
+                  <a
+                    href={`/api/events/${event.id}/calendar`}
+                    className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-orange-500 bg-white px-4 py-2 text-xs font-semibold text-orange-500 transition-colors hover:bg-orange-50"
+                  >
+                    <span className="material-symbols-rounded">calendar_add_on</span>
+                    カレンダーに登録
+                  </a>
+                )}
                 <button
                   onClick={handleLeave}
                   className="w-full text-center text-[11px] font-semibold text-[var(--muted)] underline-offset-2 hover:underline"
