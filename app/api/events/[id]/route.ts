@@ -1,10 +1,69 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { getPlacePhotoUrlByPlaceId } from "@/lib/places";
+import { getPlacePhotoUrlByPlaceId, getPlacesForQuery } from "@/lib/places";
 import { createAppNotifications } from "@/lib/notification-delivery";
 import { parseIsoDateTimeWithTimeZone } from "@/lib/datetime";
+import {
+  buildDayPriorityByWeekday,
+  buildDefaultTimeCandidates,
+  type AvailabilityInput,
+} from "@/lib/event-time-candidates";
 
 const EVENT_DETAIL_CACHE_CONTROL = "no-store, max-age=0";
+const REGENERATED_PLACE_CANDIDATE_LIMIT = 3;
+
+type PlaceCandidateInput = {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  priceLevel?: number;
+  score: number;
+  source: "system";
+};
+
+const toPlaceCandidateInput = (place: {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  priceLevel?: number;
+}): PlaceCandidateInput => ({
+  placeId: place.placeId,
+  name: place.name,
+  address: place.address,
+  lat: place.lat,
+  lng: place.lng,
+  priceLevel: place.priceLevel,
+  score: 0,
+  source: "system",
+});
+
+const buildPlaceCandidatesFromFavoriteAreas = async (
+  favoriteAreas: string[],
+  purpose: string,
+  limit = REGENERATED_PLACE_CANDIDATE_LIMIT
+): Promise<PlaceCandidateInput[]> => {
+  const uniqueByPlaceId = new Map<string, PlaceCandidateInput>();
+
+  for (const area of favoriteAreas.slice(0, 3)) {
+    const query = `${area} ${purpose}`.trim();
+    const places = await getPlacesForQuery(query);
+
+    for (const place of places) {
+      if (!uniqueByPlaceId.has(place.placeId)) {
+        uniqueByPlaceId.set(place.placeId, toPlaceCandidateInput(place));
+      }
+      if (uniqueByPlaceId.size >= limit) {
+        return Array.from(uniqueByPlaceId.values()).slice(0, limit);
+      }
+    }
+  }
+
+  return Array.from(uniqueByPlaceId.values()).slice(0, limit);
+};
 
 export async function GET(
   request: Request,
@@ -215,6 +274,15 @@ export async function PATCH(
       name?: string;
       address?: string;
     } | null;
+    placeQuery?: string;
+    candidatePlaces?: {
+      placeId: string;
+      name: string;
+      address: string;
+      lat: number;
+      lng: number;
+      priceLevel?: number;
+    }[];
   };
 
   if (!body.ownerId) {
@@ -225,6 +293,8 @@ export async function PATCH(
     where: { id },
     include: {
       participants: true,
+      timeCandidates: true,
+      placeCandidates: true,
     },
   });
 
@@ -249,6 +319,23 @@ export async function PATCH(
     fixedPlaceName?: string | null;
     fixedPlaceAddress?: string | null;
   } = {};
+
+  const currentTimeSetting: "auto" | "manual" = event.fixedStartTime
+    ? "manual"
+    : "auto";
+  const hasCurrentFixedPlace = Boolean(
+    event.fixedPlaceId && event.fixedPlaceName && event.fixedPlaceAddress
+  );
+  const currentPlaceSetting: "auto" | "manual" = hasCurrentFixedPlace
+    ? "manual"
+    : "auto";
+
+  const nextTimeSetting = body.timeSetting ?? currentTimeSetting;
+  const nextPlaceSetting = body.placeSetting ?? currentPlaceSetting;
+  const derivedScheduleMode: "fixed" | "candidate" =
+    nextTimeSetting === "manual" && nextPlaceSetting === "manual"
+      ? "fixed"
+      : "candidate";
 
   if (typeof body.purpose === "string" && body.purpose.trim().length > 0) {
     updateData.purpose = body.purpose.trim();
@@ -277,15 +364,16 @@ export async function PATCH(
   }
 
   if (body.timeSetting === "manual") {
-    updateData.scheduleMode = "fixed";
-    if (!body.fixedStartTime) {
+    const sourceFixedStartTime =
+      body.fixedStartTime ?? event.fixedStartTime?.toISOString();
+    if (!sourceFixedStartTime) {
       return NextResponse.json(
         { message: "fixedStartTime is required when timeSetting is manual" },
         { status: 400 }
       );
     }
 
-    const fixedStartTime = parseIsoDateTimeWithTimeZone(body.fixedStartTime);
+    const fixedStartTime = parseIsoDateTimeWithTimeZone(sourceFixedStartTime);
     if (!fixedStartTime) {
       return NextResponse.json(
         {
@@ -301,15 +389,42 @@ export async function PATCH(
       fixedStartTime.getTime() + 2 * 60 * 60 * 1000
     );
   } else if (body.timeSetting === "auto") {
-    updateData.scheduleMode = "candidate";
     updateData.fixedStartTime = null;
     updateData.fixedEndTime = null;
   }
 
+  if (body.timeSetting || body.placeSetting) {
+    updateData.scheduleMode = derivedScheduleMode;
+  }
+
+  const shouldRegenerateTimeCandidates =
+    nextTimeSetting === "auto" &&
+    (currentTimeSetting === "manual" || event.timeCandidates.length === 0);
+  const shouldDeleteTimeCandidates =
+    body.timeSetting === "manual" || shouldRegenerateTimeCandidates;
+
+  const shouldRegeneratePlaceCandidates =
+    nextPlaceSetting === "auto" &&
+    (currentPlaceSetting === "manual" || event.placeCandidates.length === 0);
+
+  let shouldDeletePlaceCandidates = shouldRegeneratePlaceCandidates;
+
   if (body.placeSetting === "manual") {
-    updateData.fixedPlaceId = body.fixedPlace?.placeId ?? null;
-    updateData.fixedPlaceName = body.fixedPlace?.name ?? null;
-    updateData.fixedPlaceAddress = body.fixedPlace?.address ?? null;
+    const placeId = body.fixedPlace?.placeId?.trim();
+    const placeName = body.fixedPlace?.name?.trim();
+    const placeAddress = body.fixedPlace?.address?.trim();
+
+    if (!placeId || !placeName || !placeAddress) {
+      return NextResponse.json(
+        { message: "fixedPlace is required when placeSetting is manual" },
+        { status: 400 }
+      );
+    }
+
+    updateData.fixedPlaceId = placeId;
+    updateData.fixedPlaceName = placeName;
+    updateData.fixedPlaceAddress = placeAddress;
+    shouldDeletePlaceCandidates = true;
   } else if (body.placeSetting === "auto") {
     updateData.fixedPlaceId = null;
     updateData.fixedPlaceName = null;
@@ -333,6 +448,146 @@ export async function PATCH(
       });
     } else {
       throw error;
+    }
+  }
+
+  if (shouldDeletePlaceCandidates) {
+    await prisma.eventPlaceCandidate.deleteMany({
+      where: { eventId: id },
+    });
+  }
+
+  if (shouldDeleteTimeCandidates) {
+    await prisma.eventTimeCandidate.deleteMany({
+      where: { eventId: id },
+    });
+  }
+
+  if (shouldRegenerateTimeCandidates) {
+    type ParticipantAvailabilitySource = { userId: string; status: string };
+    type ProfileAvailabilitySource = { availability: unknown };
+
+    const approvedParticipantIds = event.participants
+      .filter(
+        (participant: ParticipantAvailabilitySource) =>
+          participant.userId !== event.ownerId && participant.status === "approved"
+      )
+      .map((participant: ParticipantAvailabilitySource) => participant.userId);
+
+    const [ownerProfile, participantProfiles] = await Promise.all([
+      prisma.profile.findUnique({
+        where: { userId: event.ownerId },
+        select: { availability: true },
+      }),
+      approvedParticipantIds.length > 0
+        ? prisma.profile.findMany({
+            where: {
+              userId: {
+                in: approvedParticipantIds,
+              },
+            },
+            select: { availability: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    const dayPriorityByWeekday = buildDayPriorityByWeekday([
+      ownerProfile?.availability,
+      ...participantProfiles.map(
+        (profile: ProfileAvailabilitySource) => profile.availability
+      ),
+    ]);
+
+    const regeneratedTimeCandidates = buildDefaultTimeCandidates(
+      ownerProfile?.availability as AvailabilityInput | undefined,
+      dayPriorityByWeekday
+    );
+
+    if (regeneratedTimeCandidates.length > 0) {
+      await prisma.eventTimeCandidate.createMany({
+        data: regeneratedTimeCandidates.map((candidate) => ({
+          eventId: id,
+          ...candidate,
+        })),
+      });
+    }
+  }
+
+  if (shouldRegeneratePlaceCandidates) {
+    const manualCandidatePlaces = (body.candidatePlaces ?? [])
+      .filter(
+        (candidate) =>
+          typeof candidate.placeId === "string" &&
+          candidate.placeId.trim().length > 0 &&
+          typeof candidate.name === "string" &&
+          candidate.name.trim().length > 0
+      )
+      .slice(0, REGENERATED_PLACE_CANDIDATE_LIMIT)
+      .map((candidate) => toPlaceCandidateInput(candidate));
+
+    let nextPlaceCandidates = manualCandidatePlaces;
+
+    if (nextPlaceCandidates.length === 0) {
+      const ownerProfile = await prisma.profile.findUnique({
+        where: { userId: event.ownerId },
+        select: { favoriteAreas: true },
+      });
+
+      const resolvedPurpose = updateData.purpose ?? event.purpose;
+      const resolvedArea =
+        updateData.area === undefined
+          ? event.area
+          : updateData.area;
+
+      const preferredAreas = resolvedArea
+        ? [
+            resolvedArea,
+            ...(ownerProfile?.favoriteAreas ?? []).filter(
+              (area: string) => area !== resolvedArea
+            ),
+          ]
+        : ownerProfile?.favoriteAreas ?? [];
+
+      const favoriteAreaCandidates = await buildPlaceCandidatesFromFavoriteAreas(
+        preferredAreas,
+        resolvedPurpose,
+        REGENERATED_PLACE_CANDIDATE_LIMIT
+      );
+
+      const fallbackQuery =
+        body.placeQuery?.trim() ||
+        (resolvedArea ? `${resolvedArea} ${resolvedPurpose}` : "").trim() ||
+        ((ownerProfile?.favoriteAreas?.[0]
+          ? `${ownerProfile.favoriteAreas[0]} ${resolvedPurpose}`
+          : resolvedPurpose) as string);
+
+      const fallbackCandidates = fallbackQuery
+        ? (await getPlacesForQuery(fallbackQuery)).map(toPlaceCandidateInput)
+        : [];
+
+      const mergedByPlaceId = new Map<string, PlaceCandidateInput>();
+      for (const candidate of [...favoriteAreaCandidates, ...fallbackCandidates]) {
+        if (!mergedByPlaceId.has(candidate.placeId)) {
+          mergedByPlaceId.set(candidate.placeId, candidate);
+        }
+        if (mergedByPlaceId.size >= REGENERATED_PLACE_CANDIDATE_LIMIT) {
+          break;
+        }
+      }
+
+      nextPlaceCandidates = Array.from(mergedByPlaceId.values()).slice(
+        0,
+        REGENERATED_PLACE_CANDIDATE_LIMIT
+      );
+    }
+
+    if (nextPlaceCandidates.length > 0) {
+      await prisma.eventPlaceCandidate.createMany({
+        data: nextPlaceCandidates.map((candidate) => ({
+          eventId: id,
+          ...candidate,
+        })),
+      });
     }
   }
 
