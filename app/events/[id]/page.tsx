@@ -350,9 +350,12 @@ export default function EventDetailPage() {
     event && isCandidateDeadlineExpired(event, nowTs)
   );
   const needsTimeCandidates = Boolean(isOpenCandidateEvent && !event?.fixedStartTime);
+  const hasFixedPlace = Boolean(
+    event?.fixedPlaceId || event?.fixedPlaceName || event?.fixedPlaceAddress
+  );
   const needsPlaceCandidates = Boolean(
     isOpenCandidateEvent &&
-      !event?.fixedPlaceId &&
+      !hasFixedPlace &&
       (event?.placeCandidates.length ?? 0) > 0
   );
   const canDownloadCalendar = event?.status === "confirmed";
