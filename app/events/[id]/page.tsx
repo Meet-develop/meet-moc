@@ -855,6 +855,13 @@ export default function EventDetailPage() {
               </div>
             ) : isOwner ? (
               <div className="w-full space-y-2 sm:w-auto">
+                <button
+                  disabled
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-emerald-100 px-4 py-2 text-xs font-semibold text-emerald-700"
+                >
+                  <span className="material-symbols-rounded">check_circle</span>
+                  参加登録済み
+                </button>
                 <Link
                   href={`/events/${event.id}/manage`}
                   className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white"
@@ -876,7 +883,7 @@ export default function EventDetailPage() {
               <div className="w-full space-y-2 sm:w-auto">
                 <button
                   disabled
-                  className="flex w-full items-center justify-center gap-2 rounded-full bg-gray-100 px-4 py-2 text-xs font-semibold text-gray-500"
+                  className="flex w-full items-center justify-center gap-2 rounded-full bg-emerald-100 px-4 py-2 text-xs font-semibold text-emerald-700"
                 >
                   <span className="material-symbols-rounded">check_circle</span>
                   参加登録済み
