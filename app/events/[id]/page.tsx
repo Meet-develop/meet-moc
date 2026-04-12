@@ -330,7 +330,11 @@ export default function EventDetailPage() {
     event && isCandidateDeadlineExpired(event, nowTs)
   );
   const needsTimeCandidates = Boolean(isOpenCandidateEvent && !event?.fixedStartTime);
-  const needsPlaceCandidates = Boolean(isOpenCandidateEvent);
+  const needsPlaceCandidates = Boolean(
+    isOpenCandidateEvent &&
+      !event?.fixedPlaceId &&
+      (event?.placeCandidates.length ?? 0) > 0
+  );
   const candidateActionsDisabled = Boolean(
     isOpenCandidateEvent && hasCandidateDeadlinePassed
   );

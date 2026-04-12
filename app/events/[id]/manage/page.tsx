@@ -142,7 +142,8 @@ export default function EventManagePage() {
     return [...participantCards, ...inviteCards];
   }, [event, pendingParticipants]);
 
-  const requiresTimeSelection = (event?.timeCandidates.length ?? 0) > 0;
+  const requiresTimeSelection =
+    !event?.fixedStartTime && (event?.timeCandidates.length ?? 0) > 0;
   const requiresPlaceSelection = (event?.placeCandidates.length ?? 0) > 0;
 
   const handleApprove = async (userId: string) => {
@@ -309,7 +310,7 @@ export default function EventManagePage() {
                 現在の確定: {formatStart(event.fixedStartTime)}
               </div>
             )}
-            {event.timeCandidates.length === 0 ? (
+            {!requiresTimeSelection ? (
               <p className="mt-4 text-sm text-[var(--muted)]">日程候補はありません。</p>
             ) : (
               <ul className="mt-4 space-y-3">
