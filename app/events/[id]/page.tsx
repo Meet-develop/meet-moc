@@ -784,7 +784,7 @@ export default function EventDetailPage() {
       const fileUrl = window.URL.createObjectURL(blob);
       const downloadLink = document.createElement("a");
       downloadLink.href = fileUrl;
-      downloadLink.download = `${event.purpose}-event.ics`;
+      downloadLink.download = `event-${event.id}.ics`;
       downloadLink.rel = "noopener";
       document.body.appendChild(downloadLink);
       downloadLink.click();
