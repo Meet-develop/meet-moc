@@ -191,7 +191,7 @@ export default function EventDetailPage() {
     "same_members_new_place" | "same_place_new_members" | null
   >(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [isCreatingInviteLink, setIsCreatingInviteLink] = useState(false);
+
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
   const [showTimeOverlay, setShowTimeOverlay] = useState(false);
@@ -453,6 +453,11 @@ export default function EventDetailPage() {
 
   const handleJoin = async () => {
     if (!userId) {
+      try {
+        window.sessionStorage.setItem("pendingJoinEventId", eventId);
+      } catch {
+        // ignore
+      }
       setAuthOverlayMode("login");
       setIsAuthOverlayOpen(true);
       return;
@@ -464,9 +469,25 @@ export default function EventDetailPage() {
     });
     const query = userId ? `?viewerId=${userId}` : "";
     const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
-    const data = (await response.json()) as EventDetail;
-    setEvent(data);
+    if (response.ok) {
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+    }
   };
+
+  useEffect(() => {
+    if (userId && eventId && event && participantStatus === null) {
+      try {
+        const pendingId = window.sessionStorage.getItem("pendingJoinEventId");
+        if (pendingId === eventId) {
+          window.sessionStorage.removeItem("pendingJoinEventId");
+          void handleJoin();
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [userId, eventId, event, participantStatus]);
 
   const handleLeave = async () => {
     if (!userId) {
@@ -724,34 +745,12 @@ export default function EventDetailPage() {
     if (!event || !userId) return;
 
     if (event.visibility === "private" && userId !== event.owner.userId) {
-      setInviteMessage("プライベートイベントではオーナーのみリンク招待を作成できます。");
+      setInviteMessage("プライベートイベントではオーナーのみ招待リンクを作成できます。");
       return;
     }
 
-    setIsCreatingInviteLink(true);
-    const response = await fetch(`/api/events/${eventId}/invites`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actorId: userId,
-        mode: "link",
-      }),
-    });
-    setIsCreatingInviteLink(false);
-
-    if (!response.ok) {
-      setInviteMessage("リンク招待の作成に失敗しました。時間をおいて再度お試しください。");
-      return;
-    }
-
-    const data = (await response.json()) as { inviteUrl?: string };
-    if (!data.inviteUrl) {
-      setInviteMessage("リンク招待の作成に失敗しました。時間をおいて再度お試しください。");
-      return;
-    }
-
-    setInviteLink(data.inviteUrl);
-    setInviteMessage("リンク招待を作成しました。");
+    setInviteLink(`${window.location.origin}/events/${eventId}`);
+    setInviteMessage("招待リンクを作成しました。");
   };
 
   const handleCalendarDownload = () => {
@@ -1376,8 +1375,7 @@ export default function EventDetailPage() {
                 <button
                   onClick={handleCreateInviteLink}
                   disabled={
-                    isCreatingInviteLink ||
-                    (event.visibility === "private" && userId !== event.owner.userId)
+                    event.visibility === "private" && userId !== event.owner.userId
                   }
                   className="flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
                 >

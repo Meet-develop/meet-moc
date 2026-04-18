@@ -80,12 +80,34 @@ export async function POST(
     (participant: { userId: string }) => participant.userId === body.userId
   );
 
+  const pendingInvite = await prisma.eventInvite.findFirst({
+    where: {
+      eventId: id,
+      inviteeId: body.userId,
+      status: "pending",
+    },
+  });
+
+  const isInvitedByOwner =
+    pendingInvite && pendingInvite.inviterId === event.ownerId;
+
   const overCapacity = approvedCount >= event.capacity;
   const requiresApprovalByDeadline = needsOwnerApprovalByDeadline(event);
+  const requiresApprovalByVisibility =
+    (event.visibility === "limited" || event.visibility === "private") &&
+    !isInvitedByOwner;
 
-  const shouldAutoApprove = !overCapacity && !requiresApprovalByDeadline;
+  const shouldAutoApprove =
+    !overCapacity && !requiresApprovalByDeadline && !requiresApprovalByVisibility;
 
   const nextStatus = shouldAutoApprove ? "approved" : "requested";
+
+  if (pendingInvite) {
+    await prisma.eventInvite.update({
+      where: { id: pendingInvite.id },
+      data: { status: "accepted" },
+    });
+  }
 
   const participant = await prisma.eventParticipant.upsert({
     where: { eventId_userId: { eventId: id, userId: body.userId } },

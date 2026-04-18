@@ -51,34 +51,7 @@ export async function POST(
     );
   }
 
-  if (body.mode === "link") {
-    if (
-      (event.visibility === "private" || event.status === "confirmed") &&
-      body.actorId !== event.ownerId
-    ) {
-      return NextResponse.json(
-        { message: "Only owner can create link invite" },
-        { status: 403 }
-      );
-    }
 
-    const created = await prisma.eventInvite.create({
-      data: {
-        eventId: event.id,
-        inviterId: body.actorId,
-        token: crypto.randomUUID(),
-        status: "pending",
-      },
-    });
-
-    const origin = request.headers.get("origin") ?? new URL(request.url).origin;
-    return NextResponse.json({
-      created: 1,
-      mode: "link",
-      token: created.token,
-      inviteUrl: `${origin}/invites/${created.token}`,
-    });
-  }
 
   if (!body.friendIds || body.friendIds.length === 0) {
     return NextResponse.json(
