@@ -191,7 +191,7 @@ export default function EventDetailPage() {
     "same_members_new_place" | "same_place_new_members" | null
   >(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [isCreatingInviteLink, setIsCreatingInviteLink] = useState(false);
+
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
   const [showTimeOverlay, setShowTimeOverlay] = useState(false);
@@ -201,6 +201,8 @@ export default function EventDetailPage() {
   const [timeVoteSelection, setTimeVoteSelection] = useState<Record<string, boolean | undefined>>({});
   const [placeVoteSelection, setPlaceVoteSelection] = useState<Record<string, "good" | "bad" | undefined>>({});
   const [calendarRegistrationVersion, setCalendarRegistrationVersion] = useState<string | null>(null);
+  const [isCalendarDownloading, setIsCalendarDownloading] = useState(false);
+  const [calendarMessage, setCalendarMessage] = useState<string | null>(null);
   const [nowTs, setNowTs] = useState<number>(() => new Date().getTime());
   const [isAuthOverlayOpen, setIsAuthOverlayOpen] = useState(false);
   const [authOverlayMode, setAuthOverlayMode] = useState<"login" | "signup">("login");
@@ -353,12 +355,13 @@ export default function EventDetailPage() {
   const hasFixedPlace = Boolean(
     event?.fixedPlaceId || event?.fixedPlaceName || event?.fixedPlaceAddress
   );
+  const hasFixedDateTime = Boolean(event?.fixedStartTime);
   const needsPlaceCandidates = Boolean(
     isOpenCandidateEvent &&
       !hasFixedPlace &&
       (event?.placeCandidates.length ?? 0) > 0
   );
-  const canDownloadCalendar = event?.status === "confirmed";
+  const canDownloadCalendar = Boolean(hasFixedDateTime && hasFixedPlace);
   const hasRegisteredCalendar = Boolean(
     canDownloadCalendar &&
       calendarRegistrationVersion &&
@@ -453,6 +456,11 @@ export default function EventDetailPage() {
 
   const handleJoin = async () => {
     if (!userId) {
+      try {
+        window.sessionStorage.setItem("pendingJoinEventId", eventId);
+      } catch {
+        // ignore
+      }
       setAuthOverlayMode("login");
       setIsAuthOverlayOpen(true);
       return;
@@ -464,9 +472,25 @@ export default function EventDetailPage() {
     });
     const query = userId ? `?viewerId=${userId}` : "";
     const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
-    const data = (await response.json()) as EventDetail;
-    setEvent(data);
+    if (response.ok) {
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+    }
   };
+
+  useEffect(() => {
+    if (userId && eventId && event && participantStatus === null) {
+      try {
+        const pendingId = window.sessionStorage.getItem("pendingJoinEventId");
+        if (pendingId === eventId) {
+          window.sessionStorage.removeItem("pendingJoinEventId");
+          void handleJoin();
+        }
+      } catch {
+        // ignore
+      }
+    }
+  }, [userId, eventId, event, participantStatus]);
 
   const handleLeave = async () => {
     if (!userId) {
@@ -724,51 +748,64 @@ export default function EventDetailPage() {
     if (!event || !userId) return;
 
     if (event.visibility === "private" && userId !== event.owner.userId) {
-      setInviteMessage("プライベートイベントではオーナーのみリンク招待を作成できます。");
+      setInviteMessage("プライベートイベントではオーナーのみ招待リンクを作成できます。");
       return;
     }
 
-    setIsCreatingInviteLink(true);
-    const response = await fetch(`/api/events/${eventId}/invites`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        actorId: userId,
-        mode: "link",
-      }),
-    });
-    setIsCreatingInviteLink(false);
-
-    if (!response.ok) {
-      setInviteMessage("リンク招待の作成に失敗しました。時間をおいて再度お試しください。");
-      return;
-    }
-
-    const data = (await response.json()) as { inviteUrl?: string };
-    if (!data.inviteUrl) {
-      setInviteMessage("リンク招待の作成に失敗しました。時間をおいて再度お試しください。");
-      return;
-    }
-
-    setInviteLink(data.inviteUrl);
-    setInviteMessage("リンク招待を作成しました。");
+    setInviteLink(`${window.location.origin}/events/${eventId}`);
+    setInviteMessage("招待リンクを作成しました。");
   };
 
-  const handleCalendarDownload = () => {
-    if (!event || !userId || !canDownloadCalendar || hasRegisteredCalendar) {
+  const handleCalendarDownload = async () => {
+    if (
+      !event ||
+      !userId ||
+      !canDownloadCalendar ||
+      hasRegisteredCalendar ||
+      isCalendarDownloading
+    ) {
       return;
     }
 
-    try {
-      if (calendarRegistrationStorageKey) {
-        window.localStorage.setItem(calendarRegistrationStorageKey, event.updatedAt);
-      }
-    } catch {
-      // Ignore storage failures and continue with the download.
-    }
+    setIsCalendarDownloading(true);
+    setCalendarMessage(null);
 
-    setCalendarRegistrationVersion(event.updatedAt);
-    window.location.assign(`/api/events/${event.id}/calendar`);
+    try {
+      const response = await fetch(`/api/events/${event.id}/calendar`, {
+        cache: "no-store",
+      });
+
+      if (!response.ok) {
+        setCalendarMessage("カレンダーの登録に失敗しました。時間をおいて再度お試しください。");
+        return;
+      }
+
+      const blob = await response.blob();
+      const fileUrl = window.URL.createObjectURL(blob);
+      const downloadLink = document.createElement("a");
+      downloadLink.href = fileUrl;
+      downloadLink.download = `event-${event.id}.ics`;
+      downloadLink.rel = "noopener";
+      document.body.appendChild(downloadLink);
+      downloadLink.click();
+      downloadLink.remove();
+      window.URL.revokeObjectURL(fileUrl);
+
+      try {
+        if (calendarRegistrationStorageKey) {
+          window.localStorage.setItem(calendarRegistrationStorageKey, event.updatedAt);
+        }
+      } catch {
+        // Ignore storage failures and continue after successful download.
+      }
+
+      setCalendarRegistrationVersion(event.updatedAt);
+      setCalendarMessage("カレンダーに登録しました。");
+    } catch {
+      setCalendarMessage("カレンダーの登録に失敗しました。時間をおいて再度お試しください。");
+    } finally {
+      setIsCalendarDownloading(false);
+    }
   };
 
   const handleCopyInviteLink = async () => {
@@ -914,11 +951,11 @@ export default function EventDetailPage() {
                   <button
                     type="button"
                     onClick={handleCalendarDownload}
-                    disabled={hasRegisteredCalendar}
+                    disabled={hasRegisteredCalendar || isCalendarDownloading}
                     className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-orange-500 bg-white px-4 py-2 text-xs font-semibold text-orange-500 transition-colors hover:bg-orange-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:hover:bg-gray-100"
                   >
                     <span className="material-symbols-rounded">calendar_add_on</span>
-                    カレンダーに登録
+                    {isCalendarDownloading ? "登録中..." : "カレンダーに登録"}
                   </button>
                 )}
               </div>
@@ -935,11 +972,11 @@ export default function EventDetailPage() {
                   <button
                     type="button"
                     onClick={handleCalendarDownload}
-                    disabled={hasRegisteredCalendar}
+                    disabled={hasRegisteredCalendar || isCalendarDownloading}
                     className="flex w-full items-center justify-center gap-2 rounded-full border-2 border-orange-500 bg-white px-4 py-2 text-xs font-semibold text-orange-500 transition-colors hover:bg-orange-50 disabled:cursor-not-allowed disabled:border-gray-300 disabled:bg-gray-100 disabled:text-gray-500 disabled:shadow-none disabled:hover:bg-gray-100"
                   >
                     <span className="material-symbols-rounded">calendar_add_on</span>
-                    カレンダーに登録
+                    {isCalendarDownloading ? "登録中..." : "カレンダーに登録"}
                   </button>
                 )}
                 <button
@@ -977,6 +1014,9 @@ export default function EventDetailPage() {
           )}
           {recreateMessage && (
             <p className="mt-2 text-xs font-semibold text-rose-700">{recreateMessage}</p>
+          )}
+          {calendarMessage && (
+            <p className="mt-2 text-xs font-semibold text-[var(--muted)]">{calendarMessage}</p>
           )}
         </section>
 
@@ -1376,8 +1416,7 @@ export default function EventDetailPage() {
                 <button
                   onClick={handleCreateInviteLink}
                   disabled={
-                    isCreatingInviteLink ||
-                    (event.visibility === "private" && userId !== event.owner.userId)
+                    event.visibility === "private" && userId !== event.owner.userId
                   }
                   className="flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
                 >

@@ -113,13 +113,14 @@ export async function GET(
     endsAt,
   });
 
-  const encodedFileName = encodeURIComponent(`${event.purpose}-event.ics`);
+  const fileName = `event-${event.id}.ics`;
+  const encodedFileName = encodeURIComponent(fileName);
 
   return new NextResponse(icsBody, {
     status: 200,
     headers: {
       "Content-Type": "text/calendar; charset=utf-8",
-      "Content-Disposition": `attachment; filename*=UTF-8''${encodedFileName}`,
+      "Content-Disposition": `attachment; filename="${fileName}"; filename*=UTF-8''${encodedFileName}`,
       "Cache-Control": "no-store, max-age=0",
     },
   });
