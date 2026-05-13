@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { ProfileCompletionModal } from "@/components/ui/profile-completion-modal";
 
 type NavItem = {
   href: string;
@@ -54,6 +55,8 @@ export function MobileBottomNav() {
   const [userId, setUserId] = useState<string | null>(null);
   const [isSessionChecked, setIsSessionChecked] = useState(false);
   const [profileCompletionRate, setProfileCompletionRate] = useState<number>(100);
+  const [profile, setProfile] = useState<any | null>(null);
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -103,11 +106,13 @@ export function MobileBottomNav() {
 
       if (!response.ok) {
         setProfileCompletionRate(0);
+        setProfile(null);
         return;
       }
 
-      const profile = (await response.json()) as { stats?: { completionRate?: number } };
-      setProfileCompletionRate(profile.stats?.completionRate ?? 0);
+      const profileJson = await response.json();
+      setProfile(profileJson);
+      setProfileCompletionRate(profileJson.stats?.completionRate ?? 0);
     };
 
     void loadProfile();
@@ -151,9 +156,10 @@ export function MobileBottomNav() {
               {isDisabled ? (
                 <button
                   type="button"
-                  disabled
-                  title="プロフィール設定が100%になるとイベントを作成できます。"
-                  className={`flex w-full flex-col items-center justify-center gap-1 text-[11px] font-semibold ${baseClass} ${disabledClass}`}
+                  onClick={() => setIsProfileModalOpen(true)}
+                  aria-haspopup="dialog"
+                  title="プロフィールを完了するとイベントを作成できます。"
+                  className={`flex w-full flex-col items-center justify-center gap-1 text-[11px] font-semibold ${baseClass}`}
                 >
                   <span className="material-symbols-rounded text-[20px]">{item.icon}</span>
                   <span className="whitespace-nowrap leading-none">{item.label}</span>
@@ -161,6 +167,12 @@ export function MobileBottomNav() {
               ) : (
                 <Link
                   href={item.href}
+                  onClick={(e) => {
+                    if (isCreateItem && !canCreateEvent) {
+                      e.preventDefault();
+                      setIsProfileModalOpen(true);
+                    }
+                  }}
                   className={`flex flex-col items-center justify-center gap-1 text-[11px] font-semibold ${baseClass}`}
                 >
                   <span className="material-symbols-rounded text-[20px]">{item.icon}</span>
@@ -171,6 +183,13 @@ export function MobileBottomNav() {
           );
         })}
       </ul>
+      {profile && (
+        <ProfileCompletionModal
+          visible={isProfileModalOpen}
+          profile={profile}
+          onClose={() => setIsProfileModalOpen(false)}
+        />
+      )}
     </nav>
   );
 }
