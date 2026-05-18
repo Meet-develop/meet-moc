@@ -146,9 +146,21 @@ export async function GET(
       },
     }));
 
+  const availabilityWeight: Record<string, number> = {
+    available: 2,
+    maybe: 1,
+    unavailable: 0,
+  };
+
   const timeCandidates = event.timeCandidates
     .map((candidate: any) => {
-      const availableVotes = candidate.votes.filter((vote: any) => vote.isAvailable).length;
+      const weightedScore = candidate.votes.reduce(
+        (acc: number, vote: any) => acc + (availabilityWeight[vote.availability] ?? 0),
+        0
+      );
+      const availableVotes = candidate.votes.filter(
+        (vote: any) => vote.availability === "available"
+      ).length;
       const myVote = viewerId
         ? candidate.votes.find((vote: any) => vote.userId === viewerId)
         : undefined;
@@ -156,11 +168,11 @@ export async function GET(
         id: candidate.id,
         startTime: candidate.startTime,
         endTime: candidate.endTime,
-        score: candidate.score + availableVotes,
+        score: candidate.score + weightedScore,
         source: candidate.source,
         proposedBy: candidate.proposedBy,
         availableVotes,
-        myAvailability: myVote?.isAvailable ?? null,
+        myAvailability: myVote?.availability ?? null,
       };
     })
     .sort((a: any, b: any) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
