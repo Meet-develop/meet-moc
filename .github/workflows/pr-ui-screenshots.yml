@@ -1,0 +1,143 @@
+name: UI Screenshot Check
+
+# UIファイルが変更されたPRでのみ実行
+on:
+  pull_request:
+    paths:
+      - "app/**"
+      - "components/**"
+      - "public/**"
+
+jobs:
+  screenshot:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # ── Docker Compose でアプリを起動 ──
+      - name: Start services
+        run: docker compose up -d --build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          GOOGLE_PLACES_API_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
+          APP_ORIGIN: "http://localhost:3000"
+          SEED_ON_STARTUP: "true"
+
+      # ── アプリの起動を待機（最大3分）──
+      - name: Wait for app
+        run: |
+          echo "Waiting for app to be ready..."
+          for i in $(seq 1 36); do
+            if curl -sf http://localhost:3000 > /dev/null 2>&1; then
+              echo "App is ready!"
+              exit 0
+            fi
+            echo "Attempt $i/36..."
+            sleep 5
+          done
+          echo "App failed to start" >&2
+          docker compose logs app
+          exit 1
+
+      # ── Node.js & Playwright インストール ──
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Playwright Chromium
+        run: npx playwright install chromium --with-deps
+
+      # ── スクリーンショット撮影 ──
+      - name: Take screenshots
+        run: |
+          mkdir -p /tmp/screenshots
+          node - <<'EOF'
+          const { chromium } = require('playwright');
+
+          const PAGES = [
+            { name: 'home',  path: '/',      width: 390, height: 844 },
+            { name: 'home-desktop', path: '/', width: 1280, height: 900 },
+          ];
+
+          (async () => {
+            const browser = await chromium.launch();
+            for (const page of PAGES) {
+              const p = await browser.newPage({ viewport: { width: page.width, height: page.height } });
+              await p.goto(`http://localhost:3000${page.path}`, { waitUntil: 'networkidle', timeout: 30000 });
+              await p.screenshot({ path: `/tmp/screenshots/${page.name}.png`, fullPage: false });
+              console.log(`Captured: ${page.name}`);
+              await p.close();
+            }
+            await browser.close();
+          })().catch(err => { console.error(err); process.exit(1); });
+          EOF
+
+      # ── GitHub PR コメントに投稿 ──
+      - name: Post screenshots to PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          COMMENT_BODY="## 📸 UIスクリーンショット（自動撮影）\n\n"
+          COMMENT_BODY+="| モバイル (390px) | デスクトップ (1280px) |\n"
+          COMMENT_BODY+="|:---:|:---:|\n"
+
+          upload_image() {
+            local file="$1"
+            local name="$2"
+            local result
+            result=$(curl -s -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -H "Content-Type: image/png" \
+              -H "X-GitHub-Api-Version: 2022-11-28" \
+              --data-binary "@$file" \
+              "https://uploads.github.com/repos/${REPO}/issues/${PR_NUMBER}/assets?name=${name}")
+            echo "$result" | jq -r '.browser_download_url // empty'
+          }
+
+          MOBILE_URL=$(upload_image /tmp/screenshots/home.png "ui-mobile.png")
+          DESKTOP_URL=$(upload_image /tmp/screenshots/home-desktop.png "ui-desktop.png")
+
+          if [ -n "$MOBILE_URL" ] && [ -n "$DESKTOP_URL" ]; then
+            COMMENT_BODY+="| ![]($MOBILE_URL) | ![]($DESKTOP_URL) |\n\n"
+          else
+            COMMENT_BODY+="画像のアップロードに失敗しました。ローカルで \`.claude/scripts/screenshot-pr.sh\` を実行してください。\n\n"
+          fi
+
+          COMMENT_BODY+="> ⚠️ 認証が必要なページ（投票UI等）はローカルで \`.claude/scripts/screenshot-pr.sh --pr $PR_NUMBER --urls \"/events/YOUR_EVENT_ID\"\` を実行してください。"
+
+          # 既存のスクリーンショットコメントを更新 or 新規投稿
+          EXISTING_COMMENT_ID=$(curl -s \
+            -H "Authorization: Bearer $GH_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/${REPO}/issues/${PR_NUMBER}/comments" \
+            | jq -r '.[] | select(.body | startswith("## 📸 UIスクリーンショット")) | .id' | head -1)
+
+          if [ -n "$EXISTING_COMMENT_ID" ]; then
+            curl -s -X PATCH \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -d "{\"body\": $(echo -e "$COMMENT_BODY" | jq -Rs .)}" \
+              "https://api.github.com/repos/${REPO}/issues/comments/${EXISTING_COMMENT_ID}" > /dev/null
+          else
+            curl -s -X POST \
+              -H "Authorization: Bearer $GH_TOKEN" \
+              -H "Accept: application/vnd.github+json" \
+              -d "{\"body\": $(echo -e "$COMMENT_BODY" | jq -Rs .)}" \
+              "https://api.github.com/repos/${REPO}/issues/${PR_NUMBER}/comments" > /dev/null
+          fi
+
+          echo "Screenshot comment posted to PR #${PR_NUMBER}"
+
+      - name: Cleanup
+        if: always()
+        run: docker compose down

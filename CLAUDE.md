@@ -54,10 +54,59 @@ prisma/
 .github/ISSUE_TEMPLATE/    # Issueテンプレート
 ```
 
-## Prismaマイグレーション手順
+## ローカル開発環境の起動
+
+このプロジェクトは **Docker Compose** でローカルDBごと起動する。
+`npm run db:migrate` をホストで直接実行すると `db:5432` に接続できないエラーが出るため、**必ずDockerを使うこと**。
+
+### 通常の起動（推奨）
 
 ```bash
-# スキーマ変更後
-npx prisma migrate dev --name <migration-name>
-npx prisma generate
+# .env を作成（初回のみ）
+# Supabase URL・APIキー・Google Places APIキーを設定
+cp .env.example .env   # ← .env.example は存在しないので README.md を参照
+
+# 起動（DB + Next.js + 自動マイグレーション）
+docker compose up --build
+
+# バックグラウンド起動
+docker compose up -d --build
+
+# ログ確認
+docker compose logs -f app
+```
+
+### マイグレーションを手動で適用する
+
+```bash
+# Dockerコンテナ内で実行（ローカルDB向け）
+docker compose exec app npm run db:migrate:dev
+
+# 本番/Supabase DBに直接適用する場合（.env の DATABASE_URL のコメントアウトを外す）
+npm run db:migrate:prod
+```
+
+### テストデータ投入
+
+```bash
+docker compose exec app npm run db:seed
+```
+
+### 停止・リセット
+
+```bash
+docker compose down          # 停止（DBデータは保持）
+docker compose down -v       # 停止 + DBデータ削除
+```
+
+## Prismaスキーマ変更時の手順
+
+```bash
+# 1. schema.prisma を編集
+# 2. マイグレーションを作成・適用
+docker compose exec app npm run db:migrate:dev
+# （マイグレーション名を聞かれるので入力）
+
+# または migration.sql を手動作成した場合
+docker compose exec app npm run db:migrate
 ```
