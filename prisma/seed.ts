@@ -539,14 +539,14 @@ const placeCandidates = [
 ];
 
 const timeVotes = [
-  { candidateId: timeCandidates[0].id, userId: users[0].userId, isAvailable: true },
-  { candidateId: timeCandidates[0].id, userId: users[1].userId, isAvailable: true },
-  { candidateId: timeCandidates[1].id, userId: users[0].userId, isAvailable: true },
-  { candidateId: timeCandidates[1].id, userId: users[2].userId, isAvailable: false },
-  { candidateId: timeCandidates[2].id, userId: users[1].userId, isAvailable: true },
-  { candidateId: timeCandidates[3].id, userId: users[2].userId, isAvailable: true },
-  { candidateId: timeCandidates[4].id, userId: users[0].userId, isAvailable: true },
-  { candidateId: timeCandidates[5].id, userId: users[5].userId, isAvailable: true },
+  { candidateId: timeCandidates[0].id, userId: users[0].userId, availability: "available" as const },
+  { candidateId: timeCandidates[0].id, userId: users[1].userId, availability: "available" as const },
+  { candidateId: timeCandidates[1].id, userId: users[0].userId, availability: "available" as const },
+  { candidateId: timeCandidates[1].id, userId: users[2].userId, availability: "unavailable" as const },
+  { candidateId: timeCandidates[2].id, userId: users[1].userId, availability: "maybe" as const },
+  { candidateId: timeCandidates[3].id, userId: users[2].userId, availability: "available" as const },
+  { candidateId: timeCandidates[4].id, userId: users[0].userId, availability: "maybe" as const },
+  { candidateId: timeCandidates[5].id, userId: users[5].userId, availability: "available" as const },
 ];
 
 const placeVotes = [
