@@ -15,7 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
-      contents: read
+      contents: write
       issues: write
 
     steps:
@@ -111,6 +111,68 @@ jobs:
           SUPABASE_URL: http://localhost:54321
         run: node .claude/scripts/ci-screenshot.js
 
+      # ── スクショを ci-screenshots ブランチに push して画像URLを得る ──
+      - name: Upload screenshot to ci-screenshots branch
+        id: upload
+        if: steps.changed.outputs.count != '0'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+          REPO_URL: https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
+        run: |
+          SCREENSHOT_DIR="/tmp/screenshots"
+          if [ ! -f "$SCREENSHOT_DIR/manifest.json" ]; then
+            echo "image_url=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          COMBINED=$(jq -r '.combined // empty' "$SCREENSHOT_DIR/manifest.json")
+          if [ -z "$COMBINED" ] || [ ! -f "$COMBINED" ]; then
+            echo "image_url=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          WORK_DIR=$(mktemp -d)
+          cd "$WORK_DIR"
+
+          # ci-screenshots ブランチが既にあれば clone、なければ orphan で初期化
+          if git ls-remote --exit-code --heads "$REPO_URL" ci-screenshots > /dev/null 2>&1; then
+            git clone --branch ci-screenshots --depth 1 --single-branch "$REPO_URL" repo
+            cd repo
+          else
+            git clone --depth 1 "$REPO_URL" repo
+            cd repo
+            git checkout --orphan ci-screenshots
+            git rm -rf . > /dev/null 2>&1 || true
+            printf '# CI Screenshots\n\nPR ごとの自動 UI スクリーンショット置き場（github-actions[bot] が管理）。\n' > README.md
+            git add README.md
+            git commit -m "ci: init ci-screenshots branch"
+          fi
+
+          IMG_NAME="pr-${PR_NUMBER}-$(date +%s).png"
+          cp "$COMBINED" "$IMG_NAME"
+          git add "$IMG_NAME"
+          git commit -m "ci: screenshot for PR #${PR_NUMBER}"
+
+          # リトライ込みでプッシュ（並列実行衝突対策）
+          for attempt in 1 2 3; do
+            if git push origin ci-screenshots; then
+              break
+            fi
+            echo "push failed (attempt $attempt), pulling and retrying..."
+            git pull --rebase origin ci-screenshots || true
+            sleep 2
+          done
+
+          SHA=$(git rev-parse HEAD)
+          IMG_URL="https://raw.githubusercontent.com/${REPO}/${SHA}/${IMG_NAME}"
+          echo "image_url=${IMG_URL}" >> "$GITHUB_OUTPUT"
+          echo "Image URL: ${IMG_URL}"
+
       # ── PR にコメント投稿 ──
       - name: Post screenshots to PR
         if: steps.changed.outputs.count != '0'
@@ -118,10 +180,10 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
           REPO: ${{ github.repository }}
+          IMAGE_URL: ${{ steps.upload.outputs.image_url }}
         run: |
           SCREENSHOT_DIR="/tmp/screenshots"
           API="https://api.github.com"
-          UPLOAD_API="https://uploads.github.com"
 
           if [ ! -f "$SCREENSHOT_DIR/manifest.json" ]; then
             echo "::warning::manifest.json not found, skipping"
@@ -131,18 +193,6 @@ jobs:
           SKIPPED=$(jq -r '.skipped // false' "$SCREENSHOT_DIR/manifest.json")
           REASON=$(jq -r '.reason // ""' "$SCREENSHOT_DIR/manifest.json")
           ITEMS_COUNT=$(jq -r '.items | length' "$SCREENSHOT_DIR/manifest.json")
-
-          upload_image() {
-            local file="$1" name="$2"
-            curl -sf -X POST \
-              -H "Authorization: Bearer $GH_TOKEN" \
-              -H "Accept: application/vnd.github+json" \
-              -H "Content-Type: image/png" \
-              -H "X-GitHub-Api-Version: 2022-11-28" \
-              --data-binary "@$file" \
-              "${UPLOAD_API}/repos/${REPO}/issues/${PR_NUMBER}/assets?name=${name}" \
-              | jq -r '.browser_download_url // empty'
-          }
 
           # ── 本文の組み立て ──
           if [ "$SKIPPED" = "true" ]; then
@@ -154,17 +204,11 @@ jobs:
           elif [ "$ITEMS_COUNT" = "0" ]; then
             BODY="## 📸 UIスクリーンショット\n\n撮影に失敗しました。アプリのログを確認してください。"
           else
-            COMBINED=$(jq -r '.combined // empty' "$SCREENSHOT_DIR/manifest.json")
             LABELS=$(jq -r '[.items[].label] | join(" / ")' "$SCREENSHOT_DIR/manifest.json")
-            if [ -n "$COMBINED" ] && [ -f "$COMBINED" ]; then
-              URL=$(upload_image "$COMBINED" "ui-screenshots-$(date +%s).png")
-              if [ -n "$URL" ]; then
-                BODY="## 📸 UIスクリーンショット（自動撮影 / スマホ 390px）\n\n**変更箇所**: ${LABELS}\n\n![]($URL)\n\n> 認証が必要なページは \`.claude/scripts/screenshot-pr.sh --pr ${PR_NUMBER} --urls \"/events/EVENT_ID\"\` で追加できます。"
-              else
-                BODY="## 📸 UIスクリーンショット\n\n画像のアップロードに失敗しました。"
-              fi
+            if [ -n "$IMAGE_URL" ]; then
+              BODY="## 📸 UIスクリーンショット（自動撮影 / スマホ 390px）\n\n**変更箇所**: ${LABELS}\n\n![](${IMAGE_URL})\n\n> 認証が必要なページは \`.claude/scripts/screenshot-pr.sh --pr ${PR_NUMBER} --urls \"/events/EVENT_ID\"\` で追加できます。"
             else
-              BODY="## 📸 UIスクリーンショット\n\n結合画像の生成に失敗しました。"
+              BODY="## 📸 UIスクリーンショット\n\n画像のアップロードに失敗しました。"
             fi
           fi
 
