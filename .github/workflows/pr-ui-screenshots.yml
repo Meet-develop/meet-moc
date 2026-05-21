@@ -1,12 +1,14 @@
 name: UI Screenshot Check
 
-# UIファイルが変更されたPRでのみ実行
+# UI ファイルが変更された PR でのみ実行
 on:
   pull_request:
     paths:
       - "app/**"
       - "components/**"
       - "public/**"
+      - ".claude/screenshot-targets.json"
+      - ".claude/scripts/ci-screenshot.js"
 
 jobs:
   screenshot:
@@ -19,64 +21,55 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      # ── シークレット確認 ──
-      # 未設定の場合はコメントだけ残して終了
-      - name: Check required secrets
-        id: check
-        env:
-          _URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          _KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+      # ── 変更ファイル一覧を取得 ──
+      - name: Compute changed files
+        id: changed
         run: |
-          if [ -z "$_URL" ] || [ -z "$_KEY" ]; then
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "ok=true" >> "$GITHUB_OUTPUT"
-          fi
+          BASE_SHA="${{ github.event.pull_request.base.sha }}"
+          HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+          echo "Base: $BASE_SHA"
+          echo "Head: $HEAD_SHA"
 
-      - name: Post "secrets not configured" comment
-        if: steps.check.outputs.ok == 'false'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
-        run: |
-          BODY="## 📸 UIスクリーンショット\n\n⚠️ GitHub Secrets が未設定のため自動撮影をスキップしました。\n\n**Settings → Secrets and variables → Actions** で以下を登録してください:\n\n| Secret名 | 説明 |\n|---|---|\n| \`NEXT_PUBLIC_SUPABASE_URL\` | Supabase プロジェクト URL |\n| \`NEXT_PUBLIC_SUPABASE_ANON_KEY\` | Supabase anon key |\n| \`GOOGLE_PLACES_API_KEY\` | Google Places API キー（任意）|\n\nまたはローカルで手動撮影:\n\`\`\`bash\ndocker compose up -d\nbash .claude/scripts/screenshot-pr.sh --pr ${PR_NUMBER} --urls \"/\"\n\`\`\`"
-          curl -s -X POST \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -d "{\"body\": $(echo -e "$BODY" | jq -Rs .)}" \
-            "https://api.github.com/repos/${REPO}/issues/${PR_NUMBER}/comments"
+          {
+            echo 'files<<__EOF__'
+            git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- app components public
+            echo '__EOF__'
+          } >> "$GITHUB_OUTPUT"
 
-      # ── .env ファイルを生成（docker compose が自動で読み込む）──
-      # env: ブロックで受け取ることでシークレット値がシェル展開されない
+          CHANGED_COUNT=$(git diff --name-only "$BASE_SHA" "$HEAD_SHA" -- app components public | wc -l | tr -d ' ')
+          echo "count=$CHANGED_COUNT" >> "$GITHUB_OUTPUT"
+          echo "変更された UI ファイル: $CHANGED_COUNT 件"
+
+      # ── 変更ファイルが0件なら早期終了 ──
+      - name: Skip if no UI changes
+        if: steps.changed.outputs.count == '0'
+        run: echo "::notice::UI ファイルの変更がないためスキップします"
+
+      # ── .env を生成（Supabase は CI 用ダミー値） ──
       - name: Create .env for Docker Compose
-        if: steps.check.outputs.ok == 'true'
-        env:
-          _SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          _SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          _GOOGLE_KEY: ${{ secrets.GOOGLE_PLACES_API_KEY }}
-          _LINE_PROVIDER: ${{ secrets.NEXT_PUBLIC_SUPABASE_LINE_PROVIDER }}
-          _LINE_BOT_PROMPT: ${{ secrets.NEXT_PUBLIC_LINE_BOT_PROMPT }}
+        if: steps.changed.outputs.count != '0'
         run: |
           printf '%s\n' \
-            "NEXT_PUBLIC_SUPABASE_URL=${_SUPABASE_URL}" \
-            "NEXT_PUBLIC_SUPABASE_ANON_KEY=${_SUPABASE_ANON_KEY}" \
-            "GOOGLE_PLACES_API_KEY=${_GOOGLE_KEY}" \
-            "NEXT_PUBLIC_SUPABASE_LINE_PROVIDER=${_LINE_PROVIDER:-custom:line}" \
-            "NEXT_PUBLIC_LINE_BOT_PROMPT=${_LINE_BOT_PROMPT:-aggressive}" \
+            "NEXT_PUBLIC_SUPABASE_URL=http://localhost:54321" \
+            "NEXT_PUBLIC_SUPABASE_ANON_KEY=ci-dummy-anon-key" \
+            "GOOGLE_PLACES_API_KEY=" \
+            "NEXT_PUBLIC_SUPABASE_LINE_PROVIDER=custom:line" \
+            "NEXT_PUBLIC_LINE_BOT_PROMPT=aggressive" \
             "APP_ORIGIN=http://localhost:3000" \
             "SEED_ON_STARTUP=true" \
             > .env
 
-      # ── Docker Compose でアプリを起動 ──
+      # ── Docker Compose でアプリ起動（シード込み）──
       - name: Start services
-        if: steps.check.outputs.ok == 'true'
+        if: steps.changed.outputs.count != '0'
         run: docker compose up -d --build
 
       # ── アプリ起動待機（最大3分）──
       - name: Wait for app to be ready
-        if: steps.check.outputs.ok == 'true'
+        if: steps.changed.outputs.count != '0'
         run: |
           echo "Waiting for app..."
           for i in $(seq 1 36); do
@@ -88,38 +81,39 @@ jobs:
             echo "Attempt $i/36 (no response yet)..."
             sleep 5
           done
-          # 200/500どちらでも「アプリが起動した」と判断してスクリーンショットを撮る
           FINAL=$(curl -s -o /dev/null -w "%{http_code}" http://localhost:3000 || echo "000")
           if [ "$FINAL" = "000" ]; then
-            docker compose logs app --tail=50
+            docker compose logs app --tail=80
             echo "::error::App failed to start"
             exit 1
           fi
 
-      # ── Node.js と Playwright をホスト側にインストール ──
-      # (スクリーンショットはホストから localhost:3000 に接続して撮影する)
+      # ── Node.js / Playwright / sharp を /tmp にインストール (Docker と権限が衝突しないよう project 外へ) ──
       - name: Setup Node.js
-        if: steps.check.outputs.ok == 'true'
+        if: steps.changed.outputs.count != '0'
         uses: actions/setup-node@v4
         with:
           node-version: "20"
 
-      - name: Install Playwright
-        if: steps.check.outputs.ok == 'true'
+      - name: Install Playwright & sharp
+        if: steps.changed.outputs.count != '0'
         run: |
-          npm install --prefix /tmp/pw playwright
+          npm install --prefix /tmp/pw playwright sharp
           npx --prefix /tmp/pw playwright install chromium --with-deps
 
       # ── スクリーンショット撮影 ──
       - name: Take screenshots
-        if: steps.check.outputs.ok == 'true'
+        if: steps.changed.outputs.count != '0'
         env:
           NODE_PATH: /tmp/pw/node_modules
+          CHANGED_FILES: ${{ steps.changed.outputs.files }}
+          APP_URL: http://localhost:3000
+          SUPABASE_URL: http://localhost:54321
         run: node .claude/scripts/ci-screenshot.js
 
-      # ── GitHub PR にコメントとして投稿 ──
+      # ── PR にコメント投稿 ──
       - name: Post screenshots to PR
-        if: steps.check.outputs.ok == 'true'
+        if: steps.changed.outputs.count != '0'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
@@ -128,6 +122,15 @@ jobs:
           SCREENSHOT_DIR="/tmp/screenshots"
           API="https://api.github.com"
           UPLOAD_API="https://uploads.github.com"
+
+          if [ ! -f "$SCREENSHOT_DIR/manifest.json" ]; then
+            echo "::warning::manifest.json not found, skipping"
+            exit 0
+          fi
+
+          SKIPPED=$(jq -r '.skipped // false' "$SCREENSHOT_DIR/manifest.json")
+          REASON=$(jq -r '.reason // ""' "$SCREENSHOT_DIR/manifest.json")
+          ITEMS_COUNT=$(jq -r '.items | length' "$SCREENSHOT_DIR/manifest.json")
 
           upload_image() {
             local file="$1" name="$2"
@@ -141,34 +144,31 @@ jobs:
               | jq -r '.browser_download_url // empty'
           }
 
-          # manifest.json から撮影済みファイルを読み取る
-          if [ ! -f "$SCREENSHOT_DIR/manifest.json" ]; then
-            echo "::warning::manifest.json not found, skipping upload"
-            exit 0
-          fi
-
-          # テーブルヘッダー
-          ROWS=""
-          while IFS= read -r line; do
-            NAME=$(echo "$line" | jq -r '.name')
-            FILE=$(echo "$line" | jq -r '.path')
-            if [ -f "$FILE" ]; then
-              URL=$(upload_image "$FILE" "${NAME}.png")
-              if [ -n "$URL" ]; then
-                ROWS+="| \`/${NAME}\` | ![]($URL) |\n"
-              else
-                ROWS+="| \`/${NAME}\` | アップロード失敗 |\n"
-              fi
+          # ── 本文の組み立て ──
+          if [ "$SKIPPED" = "true" ]; then
+            if [ "$REASON" = "no-ui-changes" ]; then
+              BODY="## 📸 UIスクリーンショット\n\nこの PR の変更には、撮影対象として登録されている UI ファイルが含まれていません。\n対象を追加する場合は \`.claude/screenshot-targets.json\` を編集してください。"
+            else
+              BODY="## 📸 UIスクリーンショット\n\nUIファイルの変更が検出されませんでした。"
             fi
-          done < <(jq -c '.[]' "$SCREENSHOT_DIR/manifest.json")
-
-          if [ -z "$ROWS" ]; then
-            BODY="## 📸 UIスクリーンショット（自動撮影）\n\n撮影または画像のアップロードに失敗しました。\nローカルで \`.claude/scripts/screenshot-pr.sh\` を実行してください。"
+          elif [ "$ITEMS_COUNT" = "0" ]; then
+            BODY="## 📸 UIスクリーンショット\n\n撮影に失敗しました。アプリのログを確認してください。"
           else
-            BODY="## 📸 UIスクリーンショット（自動撮影）\n\n| ページ | スマートフォン (390px) |\n|:---|:---:|\n${ROWS}\n> 認証が必要なページは \`.claude/scripts/screenshot-pr.sh --pr ${PR_NUMBER} --urls \"/events/EVENT_ID\"\` で追加できます。"
+            COMBINED=$(jq -r '.combined // empty' "$SCREENSHOT_DIR/manifest.json")
+            LABELS=$(jq -r '[.items[].label] | join(" / ")' "$SCREENSHOT_DIR/manifest.json")
+            if [ -n "$COMBINED" ] && [ -f "$COMBINED" ]; then
+              URL=$(upload_image "$COMBINED" "ui-screenshots-$(date +%s).png")
+              if [ -n "$URL" ]; then
+                BODY="## 📸 UIスクリーンショット（自動撮影 / スマホ 390px）\n\n**変更箇所**: ${LABELS}\n\n![]($URL)\n\n> 認証が必要なページは \`.claude/scripts/screenshot-pr.sh --pr ${PR_NUMBER} --urls \"/events/EVENT_ID\"\` で追加できます。"
+              else
+                BODY="## 📸 UIスクリーンショット\n\n画像のアップロードに失敗しました。"
+              fi
+            else
+              BODY="## 📸 UIスクリーンショット\n\n結合画像の生成に失敗しました。"
+            fi
           fi
 
-          # 既存コメントを更新 or 新規投稿
+          # ── 既存コメントを更新 or 新規投稿 ──
           EXISTING_ID=$(curl -s \
             -H "Authorization: Bearer $GH_TOKEN" \
             -H "Accept: application/vnd.github+json" \
