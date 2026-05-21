@@ -107,13 +107,14 @@ jobs:
       - name: Install Playwright
         if: steps.check.outputs.ok == 'true'
         run: |
-          rm -rf node_modules
-          npm install playwright
-          npx playwright install chromium --with-deps
+          npm install --prefix /tmp/pw playwright
+          npx --prefix /tmp/pw playwright install chromium --with-deps
 
       # ── スクリーンショット撮影 ──
       - name: Take screenshots
         if: steps.check.outputs.ok == 'true'
+        env:
+          NODE_PATH: /tmp/pw/node_modules
         run: node .claude/scripts/ci-screenshot.js
 
       # ── GitHub PR にコメントとして投稿 ──
