@@ -174,26 +174,53 @@ function buildAuthInitScript(seedUserId, supabaseRef) {
     }
 
     const page = await context.newPage();
+    // ブラウザ console と pageerror を出力（デバッグ用）
+    page.on("console", (msg) => {
+      if (msg.type() === "error" || msg.type() === "warning") {
+        console.log(`  [browser:${msg.type()}] ${msg.text()}`);
+      }
+    });
+    page.on("pageerror", (err) => {
+      console.log(`  [page error] ${err.message}`);
+    });
+    page.on("requestfailed", (req) => {
+      console.log(`  [req failed] ${req.url()} - ${req.failure()?.errorText}`);
+    });
     try {
+      // Next.js dev は初回アクセス時にページコンパイル(数十秒)が走るため、
+      // networkidle は使わない(HMR の WebSocket でずっと busy)。
+      // 1) domcontentloaded で SSR 出力を取得（compile 込みで余裕を持って60秒）
       const response = await page.goto(BASE_URL + target.url, {
-        waitUntil: "networkidle",
-        timeout: 30_000,
+        waitUntil: "domcontentloaded",
+        timeout: 60_000,
       });
-      // データロード・アニメーション完了待ち
-      await page.waitForTimeout(2_000);
+      // 2) load イベントまで待つ（失敗しても続行）
+      await page
+        .waitForLoadState("load", { timeout: 20_000 })
+        .catch(() => console.log(`  (load タイムアウト、続行)`));
+      // 3) Supabase auth → API fetch → state 反映までの待機
+      await page.waitForTimeout(4_000);
+
       await page.screenshot({ path: outPath, fullPage: true });
       const status = response?.status() ?? "unknown";
       console.log(`[OK] ${target.url} (HTTP ${status}) → ${outPath}`);
       items.push({ label: target.label, url: target.url, path: outPath, status });
     } catch (err) {
       console.error(`[FAIL] ${target.url}: ${err.message}`);
-      if (fs.existsSync(outPath)) {
-        items.push({
-          label: target.label,
-          url: target.url,
-          path: outPath,
-          status: "error",
-        });
+      // 失敗してもページの現状を撮っておく（デバッグ用に空白でないなら保存）
+      try {
+        await page.screenshot({ path: outPath, fullPage: true });
+        if (fs.existsSync(outPath)) {
+          items.push({
+            label: target.label,
+            url: target.url,
+            path: outPath,
+            status: "partial",
+          });
+          console.log(`  → 失敗時スクショを保存: ${outPath}`);
+        }
+      } catch (_) {
+        // ignore
       }
     } finally {
       await page.close();
