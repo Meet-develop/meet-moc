@@ -1,0 +1,41 @@
+name: Claude PR Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+  issue_comment:
+    types: [created]
+
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    if: |
+      github.event_name == 'pull_request' ||
+      (github.event_name == 'issue_comment' &&
+       github.event.issue.pull_request != null &&
+       contains(github.event.comment.body, '@claude'))
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: anthropics/claude-code-action@beta
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          direct_prompt: |
+            このPRのコードをレビューしてください。以下の観点で確認し、日本語でPRにコメントしてください。
+
+            ## レビュー項目
+            1. **バグ・ロジックエラー**: 動作上の問題になりうる箇所
+            2. **型安全性**: TypeScriptの型エラーや型の緩い使用
+            3. **セキュリティ**: 脆弱性・入力検証漏れ・権限チェック漏れ
+            4. **パフォーマンス**: 不必要なレンダリング・N+1クエリ・重い処理
+            5. **コード品質**: 可読性・命名・重複コード・不要なコメント
+            6. **プロジェクト規約**: CLAUDE.mdに記載された規約（Prisma enum・ブランチ命名等）への準拠
+
+            問題がない場合は「LGTM」と記載してください。
