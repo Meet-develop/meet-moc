@@ -1177,6 +1177,7 @@ export default function EventDetailPage() {
                             <button
                               onClick={() => handleTimeVote(candidate.id, "available")}
                               disabled={disabled}
+                              aria-pressed={selected === "available"}
                               className={`${baseBtn} ${
                                 selected === "available"
                                   ? "bg-emerald-100 text-emerald-700"
@@ -1191,6 +1192,7 @@ export default function EventDetailPage() {
                             <button
                               onClick={() => handleTimeVote(candidate.id, "maybe")}
                               disabled={disabled}
+                              aria-pressed={selected === "maybe"}
                               className={`${baseBtn} ${
                                 selected === "maybe"
                                   ? "bg-amber-100 text-amber-700"
@@ -1205,6 +1207,7 @@ export default function EventDetailPage() {
                             <button
                               onClick={() => handleTimeVote(candidate.id, "unavailable")}
                               disabled={disabled}
+                              aria-pressed={selected === "unavailable"}
                               className={`${baseBtn} ${
                                 selected === "unavailable"
                                   ? "bg-rose-100 text-rose-700"
