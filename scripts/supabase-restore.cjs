@@ -12,6 +12,7 @@ const supabaseServiceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || "").tri
 const bucketName = (process.env.SUPABASE_BACKUP_BUCKET || "db-backups").trim();
 const bucketPrefix = (process.env.SUPABASE_BACKUP_PREFIX || "production").trim();
 const explicitStoragePath = (process.env.BACKUP_STORAGE_PATH || "").trim();
+const pgRestoreBinary = (process.env.PG_RESTORE_BIN || "/usr/lib/postgresql/17/bin/pg_restore").trim();
 
 const fail = (message) => {
   console.error(`[supabase-restore] ${message}`);
@@ -95,7 +96,7 @@ const downloadBackup = async (supabase, storagePath) => {
 const runPgRestore = () => {
   console.log(`[supabase-restore] Restoring into ${databaseUrl}`);
   execFileSync(
-    "pg_restore",
+    pgRestoreBinary,
     [
       "--clean",
       "--if-exists",

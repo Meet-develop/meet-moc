@@ -53,4 +53,6 @@ jobs:
           SUPABASE_BACKUP_PREFIX: production
           BACKUP_REASON: ${{ github.event.inputs.reason }}
           GITHUB_SHA: ${{ github.sha }}
+          PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
+          PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
         run: npm run backup:supabase

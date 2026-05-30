@@ -13,6 +13,7 @@ const bucketName = (process.env.SUPABASE_BACKUP_BUCKET || "db-backups").trim();
 const bucketPrefix = (process.env.SUPABASE_BACKUP_PREFIX || "production").trim();
 const backupReason = (process.env.BACKUP_REASON || "").trim();
 const retentionCount = Number.parseInt(process.env.SUPABASE_BACKUP_RETENTION_COUNT || "14", 10);
+const pgDumpBinary = (process.env.PG_DUMP_BIN || "/usr/lib/postgresql/17/bin/pg_dump").trim();
 
 const fail = (message) => {
   console.error(`[supabase-backup] ${message}`);
@@ -50,7 +51,7 @@ const runPgDump = () => {
 
   console.log(`[supabase-backup] Creating dump at ${dumpPath}`);
   execFileSync(
-    "pg_dump",
+    pgDumpBinary,
     [
       databaseUrl,
       "--format=custom",
