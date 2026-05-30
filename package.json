@@ -10,6 +10,8 @@
     "test": "node scripts/run-all-tests.cjs",
     "test:auth-redirect": "tsx tests/post-auth-redirect.test.ts",
     "test:event-time-candidates": "tsx tests/event-time-candidates.test.ts",
+    "backup:supabase": "node scripts/supabase-backup.cjs",
+    "restore:supabase": "node scripts/supabase-restore.cjs",
     "db:generate": "prisma generate",
     "db:migrate": "node scripts/prisma-migrate-guard.cjs deploy",
     "db:migrate:dev": "node scripts/prisma-migrate-guard.cjs dev",

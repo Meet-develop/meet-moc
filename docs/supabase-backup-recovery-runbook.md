@@ -53,6 +53,57 @@ npm run db:generate
 - 本番で `npm run db:seed` は実行しない。
 - 本番で `prisma migrate dev` / `prisma db push` は実行しない。
 
+## 3.1 自動バックアップ運用
+
+GitHub Actions から定期的に `pg_dump` を実行し、Supabase Storage に保存する運用を推奨する。
+
+- Workflow: [`.github/workflows/supabase-backup.yml`](../.github/workflows/supabase-backup.yml)
+- 実行スクリプト: [`scripts/supabase-backup.cjs`](../scripts/supabase-backup.cjs)
+
+必要な Secrets:
+
+- `PROD_DIRECT_URL` - 本番DBへの direct 接続文字列
+- `SUPABASE_URL` - Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY` - Storage へ書き込むための service role key
+- `SUPABASE_BACKUP_BUCKET` - 任意。未設定時は `db-backups` を使用
+- `SUPABASE_BACKUP_RETENTION_COUNT` - 任意。未設定時は 14 世代保持
+
+保存先の例:
+
+- bucket: `db-backups`
+- path: `production/YYYY-MM-DD/meet-moc-<timestamp>-<sha>.dump`
+
+補足:
+
+- `pg_dump --format=custom` を使うため、復元時は `pg_restore` を使う。
+- バックアップはリポジトリには保存しない。`.git` 管理外の一時ファイルとして扱う。
+- 世代削除はバックアップ完了後に自動で実行される。
+
+### 3.2 ワンコマンド復元
+
+最新のバックアップを使って復元する場合は、次のコマンドを実行する。
+
+```bash
+npm run restore:supabase
+```
+
+特定のバックアップを指定したい場合は、Storage の path を明示する。
+
+```bash
+BACKUP_STORAGE_PATH="production/2026-05-30/meet-moc-<timestamp>-<sha>.dump" npm run restore:supabase
+```
+
+必要な Secrets:
+
+- `DATABASE_URL` - 復元先DB（本番 Supabase）の接続文字列
+- `SUPABASE_URL` - Supabase project URL
+- `SUPABASE_SERVICE_ROLE_KEY` - Storage からバックアップを読むための service role key
+
+補足:
+
+- 復元スクリプトは `BACKUP_STORAGE_PATH` が未指定なら最新の `.dump` を自動選択する。
+- `pg_restore --clean --if-exists` を使うため、復元先の既存オブジェクトは上書きされる。
+
 ## 4. 復旧後の検証
 
 1. レコード件数
@@ -66,7 +117,7 @@ npm run db:generate
 
 3. ダミーデータ混入確認
 - `profile.user_id` の seed 固定ID (`70000000-...`) が存在しないこと
-
+git s
 ## 5. 再発防止の運用ルール
 
 1. 本番運用では Prisma は migrate のみ
