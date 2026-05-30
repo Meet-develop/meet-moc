@@ -11,6 +11,8 @@ export async function POST(
     userId?: string;
     candidateId?: string;
     availability?: TimeAvailability;
+    // legacy payloads may send `isAvailable: boolean`
+    isAvailable?: boolean;
   };
 
   if (!body.userId || !body.candidateId) {
@@ -20,7 +22,13 @@ export async function POST(
     );
   }
 
-  const availability = body.availability ?? TimeAvailability.available;
+  const availability =
+    body.availability ??
+    (body.isAvailable !== undefined
+      ? body.isAvailable
+        ? TimeAvailability.available
+        : TimeAvailability.unavailable
+      : TimeAvailability.available);
   if (!Object.values(TimeAvailability).includes(availability)) {
     return NextResponse.json(
       { message: "availability must be available, maybe, or unavailable" },
