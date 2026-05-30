@@ -9,10 +9,16 @@ on:
       - prisma/migrations/**
       - scripts/prisma-migrate-guard.cjs
       - package.json
+  workflow_dispatch:
+
+concurrency:
+  group: prisma-migrate-production
+  cancel-in-progress: false
 
 jobs:
   migrate-prod:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     environment: production
     steps:
       - name: Checkout

@@ -12,6 +12,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -20,6 +22,12 @@ jobs:
 
       - name: Check workflow seed safety
         run: node scripts/ci-check-prod-seed-block.cjs
+
+      - name: Check migration SQL safety
+        env:
+          GITHUB_BASE_REF: ${{ github.base_ref }}
+          GITHUB_EVENT_BEFORE: ${{ github.event.before }}
+        run: node scripts/ci-check-migration-safety.cjs
 
       - name: Ensure seed guard rejects non-local DB
         shell: bash
