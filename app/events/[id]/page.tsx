@@ -1187,7 +1187,7 @@ export default function EventDetailPage() {
                               }`}
                               aria-label="参加できる"
                             >
-                              ○
+                              <span className="material-symbols-rounded">radio_button_unchecked</span>
                             </button>
                             <button
                               onClick={() => handleTimeVote(candidate.id, "maybe")}
@@ -1202,7 +1202,7 @@ export default function EventDetailPage() {
                               }`}
                               aria-label="たぶん参加できる"
                             >
-                              △
+                              <span className="material-symbols-rounded material-symbols-rounded-outline">change_history</span>
                             </button>
                             <button
                               onClick={() => handleTimeVote(candidate.id, "unavailable")}
@@ -1217,7 +1217,7 @@ export default function EventDetailPage() {
                               }`}
                               aria-label="参加できない"
                             >
-                              ×
+                              <span className="material-symbols-rounded">close</span>
                             </button>
                           </div>
                         );
