@@ -5,6 +5,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
 import { ProfileCompletionModal } from "@/components/ui/profile-completion-modal";
+import type { Profile } from "@/components/ui/profile-completion-modal";
 
 type NavItem = {
   href: string;
@@ -54,8 +55,10 @@ export function MobileBottomNav() {
   const pathname = usePathname();
   const [userId, setUserId] = useState<string | null>(null);
   const [isSessionChecked, setIsSessionChecked] = useState(false);
-  const [profileCompletionRate, setProfileCompletionRate] = useState<number>(100);
-  const [profile, setProfile] = useState<any | null>(null);
+  const [profileCompletionRate, setProfileCompletionRate] = useState<number | null>(
+    null
+  );
+  const [profile, setProfile] = useState<Profile | null>(null);
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   useEffect(() => {
@@ -122,7 +125,8 @@ export function MobileBottomNav() {
     };
   }, [userId]);
 
-  const canCreateEvent = userId == null || profileCompletionRate >= 100;
+  const canCreateEvent =
+    userId == null || (profileCompletionRate != null && profileCompletionRate >= 100);
 
   if (hiddenPathPrefixes.some((prefix) => pathname.startsWith(prefix))) {
     return null;

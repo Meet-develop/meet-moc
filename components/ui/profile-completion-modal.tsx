@@ -1,8 +1,10 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
+import { hasAnyWeekdayAvailability } from "@/lib/availability";
 
-type Profile = {
+export type Profile = {
   displayName?: string;
   avatarIcon?: string | null;
   birthDate?: string | null;
@@ -23,18 +25,19 @@ type Props = {
   onClose: () => void;
 };
 
-const hasAnyWeekdayAvailability = (availability: unknown) => {
-  if (!availability || typeof availability !== "object") return false;
-  try {
-    const record = availability as any;
-    const slots = record.weekdaySlots ?? {};
-    return Object.values(slots).some((s: any) => Boolean(s?.daytime) || Boolean(s?.night));
-  } catch {
-    return false;
-  }
-};
+// use shared utility for availability detection
+// (handles legacy `days` shape as well)
 
 export function ProfileCompletionModal({ visible, profile, onClose }: Props) {
+  useEffect(() => {
+    if (!visible) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [visible, onClose]);
+
   if (!visible) return null;
 
   const missing: string[] = [];
@@ -53,10 +56,15 @@ export function ProfileCompletionModal({ visible, profile, onClose }: Props) {
   if (!hasAnyWeekdayAvailability(profile.availability)) missing.push("普段の空き時間（曜日/時間帯）");
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-end justify-center">
+    <div className="fixed inset-0 z-[120] flex items-end justify-center" role="presentation">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative mx-4 mb-6 w-full max-w-md rounded-2xl bg-white p-5 shadow-xl">
-        <h3 className="mb-2 text-lg font-bold">プロフィールを完了してください</h3>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-completion-title"
+        className="relative mx-4 mb-6 w-full max-w-md rounded-2xl bg-white p-5 shadow-xl"
+      >
+        <h3 id="profile-completion-title" className="mb-2 text-lg font-bold">プロフィールを完了してください</h3>
         <p className="mb-3 text-sm text-[var(--muted)]">プロフィールを完了させることでイベントが作成できるようになります。</p>
 
         {missing.length === 0 ? (
