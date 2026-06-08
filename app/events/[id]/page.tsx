@@ -886,12 +886,45 @@ export default function EventDetailPage() {
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
                 場所
               </p>
-              <p className="mt-2 text-sm font-semibold">
-                {event.fixedPlaceName ?? "候補から決定"}
-              </p>
-              <p className="text-xs text-[var(--muted)]">
-                {event.fixedPlaceAddress ?? ""}
-              </p>
+              {event.fixedPlaceName ? (
+                <button
+                  onClick={() => {
+                    const matched = event.placeCandidates.find(
+                      (c) => c.placeId === event.fixedPlaceId
+                    );
+                    setSelectedPlaceDetail(
+                      matched ?? {
+                        id: event.fixedPlaceId ?? "",
+                        placeId: event.fixedPlaceId ?? "",
+                        name: event.fixedPlaceName ?? "",
+                        address: event.fixedPlaceAddress ?? "",
+                        lat: 0,
+                        lng: 0,
+                        photoUrl: null,
+                        mapsUrl: event.fixedPlaceAddress
+                          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.fixedPlaceAddress)}`
+                          : undefined,
+                        score: 0,
+                        source: "system",
+                        myScore: null,
+                      }
+                    );
+                  }}
+                  className="mt-2 text-left"
+                >
+                  <p className="text-sm font-semibold underline-offset-2 hover:underline">
+                    {event.fixedPlaceName}
+                  </p>
+                  <p className="text-xs text-[var(--muted)]">
+                    {event.fixedPlaceAddress ?? ""}
+                  </p>
+                </button>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm font-semibold">候補から決定</p>
+                  <p className="text-xs text-[var(--muted)]"></p>
+                </>
+              )}
             </div>
             <div className="p-1">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
