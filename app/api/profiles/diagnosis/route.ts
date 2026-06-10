@@ -3,6 +3,7 @@ import { prisma } from "@/lib/prisma";
 import { COMMUNITY_AXES, getCommunityType } from "@/lib/community-diagnosis/types";
 
 type ProfileUpdates = {
+  gender?: "male" | "female" | "other" | "unspecified";
   birthDate?: string;
   playFrequency?: "low" | "medium" | "high";
   drinkFrequency?: "never" | "sometimes" | "often";
@@ -23,12 +24,13 @@ type DiagnosisRequestBody = {
   profileUpdates?: ProfileUpdates;
 };
 
+// axisScores は 4段階評価のA極傾き (0.0〜1.0 の float)
 const isValidAxisScores = (value: unknown): value is Record<string, number> => {
   if (!value || typeof value !== "object") return false;
   const record = value as Record<string, unknown>;
   return COMMUNITY_AXES.every((axis) => {
     const score = record[axis.key];
-    return typeof score === "number" && Number.isInteger(score) && score >= 0 && score <= 3;
+    return typeof score === "number" && isFinite(score) && score >= 0 && score <= 1;
   });
 };
 
@@ -50,6 +52,7 @@ export async function POST(request: Request) {
 
   const updates = body.profileUpdates ?? {};
   const profileData = {
+    ...(updates.gender !== undefined ? { gender: updates.gender } : {}),
     ...(updates.birthDate !== undefined
       ? { birthDate: updates.birthDate ? new Date(updates.birthDate) : null }
       : {}),

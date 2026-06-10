@@ -7,6 +7,7 @@ import {
 import { DIAGNOSIS_QUESTIONS } from "../lib/community-diagnosis/questions";
 import {
   computeDiagnosis,
+  type DiagnosisRating,
   type DiagnosisAnswers,
 } from "../lib/community-diagnosis/scoring";
 
@@ -56,37 +57,51 @@ import {
   console.log("[PASS] 質問は各軸3問ずつ");
 }
 
-const buildAnswers = (pick: (questionId: string, axis: string) => "A" | "B"): DiagnosisAnswers =>
+const buildAnswers = (pick: (questionId: string, axis: string) => DiagnosisRating): DiagnosisAnswers =>
   DIAGNOSIS_QUESTIONS.reduce<DiagnosisAnswers>((acc, question) => {
     acc[question.id] = pick(question.id, question.axis);
     return acc;
   }, {});
 
-// 全てA極を選ぶと BHLO、全てB極を選ぶと SCFD
+// 全て強くA(1)を選ぶと BHLO、全て強くB(4)を選ぶと SCFD
 {
-  const allA = computeDiagnosis(buildAnswers(() => "A"));
+  const allA = computeDiagnosis(buildAnswers(() => 1));
   assert.equal(allA.code, "BHLO");
-  assert.deepEqual(allA.axisScores, { size: 3, mood: 3, role: 3, bond: 3 });
+  assert.deepEqual(allA.axisScores, { size: 1.0, mood: 1.0, role: 1.0, bond: 1.0 });
 
-  const allB = computeDiagnosis(buildAnswers(() => "B"));
+  const allB = computeDiagnosis(buildAnswers(() => 4));
   assert.equal(allB.code, "SCFD");
-  assert.deepEqual(allB.axisScores, { size: 0, mood: 0, role: 0, bond: 0 });
-  console.log("[PASS] 全A/全Bの分類が正しい");
+  assert.deepEqual(allB.axisScores, { size: 0.0, mood: 0.0, role: 0.0, bond: 0.0 });
+  console.log("[PASS] 全強A/全強Bの分類が正しい");
 }
 
-// 混合回答: 多数決で極が決まる(2対1でも判定できる)
+// 混合回答: 2問強A・1問強B → A極になる (平均0.67 > 0.5)
 {
-  // size は q1 のみ B(2対1でA極)、mood/role は全てB、bond は全てA → "SCFO"... ではなく size=A極なので "BCFO"
+  // size: q1=4(強B), q5=1(強A), q9=1(強A) → avg=(0+1+1)/3=0.67 → A極(B)
+  // mood/role: 全て4(強B) → avg=0 → B極(C/F)
+  // bond: 全て1(強A) → avg=1 → A極(O)
   const mixed = computeDiagnosis(
     buildAnswers((questionId, axis) => {
-      if (axis === "size") return questionId === "q1" ? "B" : "A";
-      if (axis === "bond") return "A";
-      return "B";
+      if (axis === "size") return questionId === "q1" ? 4 : 1;
+      if (axis === "bond") return 1;
+      return 4;
     })
   );
   assert.equal(mixed.code, "BCFO");
-  assert.deepEqual(mixed.axisScores, { size: 2, mood: 0, role: 0, bond: 3 });
-  console.log("[PASS] 混合回答の多数決判定が正しい");
+  assert.deepEqual(mixed.axisScores, { size: 0.67, mood: 0.0, role: 0.0, bond: 1.0 });
+  console.log("[PASS] 混合回答の判定が正しい");
+}
+
+// ややA(2)とややB(3)の中間判定
+{
+  // 全てに rating 2 (ややA) → avg=2/3≈0.67 → A極
+  const slightlyA = computeDiagnosis(buildAnswers(() => 2));
+  assert.equal(slightlyA.code, "BHLO");
+
+  // 全てに rating 3 (ややB) → avg=1/3≈0.33 → B極
+  const slightlyB = computeDiagnosis(buildAnswers(() => 3));
+  assert.equal(slightlyB.code, "SCFD");
+  console.log("[PASS] 中間評価の判定が正しい");
 }
 
 // 全16コードが実際に到達可能で、定義済みタイプに解決される
@@ -95,7 +110,7 @@ const buildAnswers = (pick: (questionId: string, axis: string) => "A" | "B"): Di
     const answers = buildAnswers((questionId, axisKey) => {
       const axisIndex = COMMUNITY_AXES.findIndex((axis) => axis.key === axisKey);
       const letter = type.code[axisIndex];
-      return letter === COMMUNITY_AXES[axisIndex].poleA.letter ? "A" : "B";
+      return letter === COMMUNITY_AXES[axisIndex].poleA.letter ? 1 : 4;
     });
     const result = computeDiagnosis(answers);
     assert.equal(result.code, type.code);
@@ -110,7 +125,7 @@ const buildAnswers = (pick: (questionId: string, axis: string) => "A" | "B"): Di
   assert.equal(getCommunityType(""), null);
   assert.equal(getCommunityType(null), null);
   assert.equal(getCommunityType("bhlo")?.code, "BHLO", "小文字コードは大文字に正規化される");
-  assert.throws(() => computeDiagnosis({}), /Missing answer/);
+  assert.throws(() => computeDiagnosis({}), /Missing or invalid/);
   console.log("[PASS] 不正入力のハンドリングが正しい");
 }
 

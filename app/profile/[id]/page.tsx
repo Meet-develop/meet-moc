@@ -195,7 +195,7 @@ export default function FriendProfilePage() {
             <h2 className="mt-3 text-xl font-semibold">{profile.displayName}</h2>
             {profile.communityType && (
               <div className="mt-2">
-                <TypeBadge code={profile.communityType} />
+                <TypeBadge code={profile.communityType} linkable />
               </div>
             )}
           </div>

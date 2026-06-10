@@ -11,7 +11,7 @@ import { ResultCard } from "@/components/features/diagnosis/result-card";
 import { DIAGNOSIS_QUESTIONS } from "@/lib/community-diagnosis/questions";
 import {
   computeDiagnosis,
-  type DiagnosisAnswer,
+  type DiagnosisRating,
   type DiagnosisAnswers,
   type DiagnosisResult,
 } from "@/lib/community-diagnosis/scoring";
@@ -21,7 +21,17 @@ type WeekdayKey = "mon" | "tue" | "wed" | "thu" | "fri" | "sat" | "sun";
 type Slot = { daytime: boolean; night: boolean };
 type WeekdaySlots = Record<WeekdayKey, Slot>;
 
+type PlaceResult = {
+  placeId: string;
+  name: string;
+  address: string;
+  lat: number;
+  lng: number;
+  photoUrl?: string;
+};
+
 type ProfileResponse = {
+  gender?: string | null;
   birthDate?: string | null;
   playFrequency?: string | null;
   drinkFrequency?: string | null;
@@ -34,6 +44,7 @@ type ProfileResponse = {
 };
 
 type ProfileFieldKey =
+  | "gender"
   | "birthDate"
   | "playFrequency"
   | "drinkFrequency"
@@ -41,9 +52,17 @@ type ProfileFieldKey =
   | "ngFoods"
   | "favoriteAreas"
   | "favoritePlaces"
+  | "frequentPlaces"
   | "availability";
 
 type Phase = "loading" | "login" | "intro" | "profile" | "questions" | "computing" | "result";
+
+const genderOptions = [
+  { value: "male", label: "男性" },
+  { value: "female", label: "女性" },
+  { value: "other", label: "その他" },
+  { value: "unspecified", label: "未設定" },
+] as const;
 
 const playFrequencyOptions = [
   { value: "low", label: "月1-2回" },
@@ -113,6 +132,7 @@ const defaultWeekdaySlots: WeekdaySlots = {
 };
 
 const profileFieldTitles: Record<ProfileFieldKey, string> = {
+  gender: "性別を教えてください",
   birthDate: "誕生日はいつ?",
   playFrequency: "友達と遊ぶ頻度は?",
   drinkFrequency: "お酒はどのくらい飲む?",
@@ -120,6 +140,7 @@ const profileFieldTitles: Record<ProfileFieldKey, string> = {
   ngFoods: "苦手な食べ物はある?",
   favoriteAreas: "よく行くエリアは?",
   favoritePlaces: "好きなお店ジャンルは?",
+  frequentPlaces: "よく飲みに行くお店を教えてください",
   availability: "集まりやすい曜日・時間帯は?",
 };
 
@@ -143,6 +164,7 @@ export default function CommunityDiagnosisPage() {
   const [saveState, setSaveState] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const submittedRef = useRef(false);
 
+  const [gender, setGender] = useState("");
   const [birthDate, setBirthDate] = useState("");
   const [playFrequency, setPlayFrequency] = useState("");
   const [drinkFrequency, setDrinkFrequency] = useState("");
@@ -151,6 +173,11 @@ export default function CommunityDiagnosisPage() {
   const [favoriteAreas, setFavoriteAreas] = useState<string[]>([]);
   const [areaInput, setAreaInput] = useState("");
   const [favoritePlaces, setFavoritePlaces] = useState<string[]>([]);
+  const [frequentPlaces, setFrequentPlaces] = useState<PlaceResult[]>([]);
+  const [placeQuery, setPlaceQuery] = useState("");
+  const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
+  const [placeSearchMessage, setPlaceSearchMessage] = useState<string | null>(null);
   const [weekdaySlots, setWeekdaySlots] = useState<WeekdaySlots>(defaultWeekdaySlots);
 
   useEffect(() => {
@@ -165,6 +192,7 @@ export default function CommunityDiagnosisPage() {
       }
 
       const allFields: ProfileFieldKey[] = [
+        "gender",
         "birthDate",
         "playFrequency",
         "drinkFrequency",
@@ -172,6 +200,7 @@ export default function CommunityDiagnosisPage() {
         "ngFoods",
         "favoriteAreas",
         "favoritePlaces",
+        "frequentPlaces",
         "availability",
       ];
 
@@ -191,6 +220,8 @@ export default function CommunityDiagnosisPage() {
 
       const missing = allFields.filter((field) => {
         switch (field) {
+          case "gender":
+            return !profile.gender || profile.gender === "unspecified";
           case "birthDate":
             return !profile.birthDate;
           case "playFrequency":
@@ -205,6 +236,10 @@ export default function CommunityDiagnosisPage() {
             return (profile.favoriteAreas ?? []).length === 0;
           case "favoritePlaces":
             return (profile.favoritePlaces ?? []).length === 0;
+          case "frequentPlaces": {
+            const avail = profile.availability as { frequentPlaces?: unknown[] } | null;
+            return !avail?.frequentPlaces?.length;
+          }
           case "availability":
             return !hasAnyWeekdayAvailability(profile.availability);
         }
@@ -230,6 +265,8 @@ export default function CommunityDiagnosisPage() {
 
   const isCurrentFieldAnswered = useMemo(() => {
     switch (currentField) {
+      case "gender":
+        return gender.length > 0;
       case "birthDate":
         return birthDate.length > 0;
       case "playFrequency":
@@ -244,6 +281,8 @@ export default function CommunityDiagnosisPage() {
         return favoriteAreas.length > 0;
       case "favoritePlaces":
         return favoritePlaces.length > 0;
+      case "frequentPlaces":
+        return frequentPlaces.length > 0;
       case "availability":
         return Object.values(weekdaySlots).some((slot) => slot.daytime || slot.night);
       default:
@@ -251,6 +290,7 @@ export default function CommunityDiagnosisPage() {
     }
   }, [
     currentField,
+    gender,
     birthDate,
     playFrequency,
     drinkFrequency,
@@ -258,6 +298,7 @@ export default function CommunityDiagnosisPage() {
     ngFoods.length,
     favoriteAreas.length,
     favoritePlaces.length,
+    frequentPlaces.length,
     weekdaySlots,
   ]);
 
@@ -278,9 +319,9 @@ export default function CommunityDiagnosisPage() {
     }
   };
 
-  const handleAnswer = (choice: DiagnosisAnswer) => {
+  const handleAnswer = (rating: DiagnosisRating) => {
     const question = DIAGNOSIS_QUESTIONS[questionIndex];
-    const nextAnswers = { ...answers, [question.id]: choice };
+    const nextAnswers = { ...answers, [question.id]: rating };
     setAnswers(nextAnswers);
 
     if (questionIndex + 1 < DIAGNOSIS_QUESTIONS.length) {
@@ -308,6 +349,9 @@ export default function CommunityDiagnosisPage() {
       const profileUpdates: Record<string, unknown> = {};
       for (const field of answeredFields) {
         switch (field) {
+          case "gender":
+            profileUpdates.gender = gender;
+            break;
           case "birthDate":
             profileUpdates.birthDate = birthDate;
             break;
@@ -334,16 +378,31 @@ export default function CommunityDiagnosisPage() {
           case "favoritePlaces":
             profileUpdates.favoritePlaces = favoritePlaces;
             break;
-          case "availability": {
-            // 既存の availability(frequentPlaces 等)を壊さず weekdaySlots だけ更新する
-            const base =
-              existingAvailability && typeof existingAvailability === "object"
-                ? (existingAvailability as Record<string, unknown>)
-                : {};
-            profileUpdates.availability = { ...base, weekdaySlots };
-            break;
-          }
         }
+      }
+
+      // availability と frequentPlaces は両方 availability JSON にまとめてマージ
+      const hasAvailabilityUpdate =
+        answeredFields.includes("availability") || answeredFields.includes("frequentPlaces");
+      if (hasAvailabilityUpdate) {
+        const base =
+          existingAvailability && typeof existingAvailability === "object"
+            ? { ...(existingAvailability as Record<string, unknown>) }
+            : {};
+        if (answeredFields.includes("availability")) {
+          base.weekdaySlots = weekdaySlots;
+        }
+        if (answeredFields.includes("frequentPlaces")) {
+          base.frequentPlaces = frequentPlaces.map((p) => ({
+            placeId: p.placeId,
+            name: p.name,
+            address: p.address,
+            lat: p.lat,
+            lng: p.lng,
+            photoUrl: p.photoUrl,
+          }));
+        }
+        profileUpdates.availability = base;
       }
 
       const response = await fetch("/api/profiles/diagnosis", {
@@ -366,6 +425,7 @@ export default function CommunityDiagnosisPage() {
     result,
     userId,
     answeredFields,
+    gender,
     birthDate,
     playFrequency,
     drinkFrequency,
@@ -373,6 +433,7 @@ export default function CommunityDiagnosisPage() {
     ngFoods,
     favoriteAreas,
     favoritePlaces,
+    frequentPlaces,
     weekdaySlots,
     existingAvailability,
   ]);
@@ -412,10 +473,61 @@ export default function CommunityDiagnosisPage() {
     }));
   };
 
+  const handleSearchFrequentPlaces = async () => {
+    if (!placeQuery.trim()) {
+      setPlaceSearchMessage("店名やエリアを入力してください。");
+      return;
+    }
+    setIsSearchingPlaces(true);
+    setPlaceSearchMessage(null);
+    const response = await fetch(
+      `/api/places/search?query=${encodeURIComponent(placeQuery)}&limit=6`
+    );
+    if (!response.ok) {
+      setPlaceSearchMessage("検索に失敗しました。時間をおいて再度お試しください。");
+      setIsSearchingPlaces(false);
+      return;
+    }
+    const data = (await response.json()) as { places?: PlaceResult[] };
+    setPlaceResults(data.places ?? []);
+    setPlaceSearchMessage(null);
+    setIsSearchingPlaces(false);
+  };
+
+  const addFrequentPlace = (place: PlaceResult) => {
+    setFrequentPlaces((prev) => {
+      if (prev.some((item) => item.placeId === place.placeId)) {
+        setPlaceSearchMessage("既に追加済みです。");
+        return prev;
+      }
+      if (prev.length >= 3) {
+        setPlaceSearchMessage("よく行くお店は最大3件までです。");
+        return prev;
+      }
+      setPlaceSearchMessage(null);
+      return [...prev, place];
+    });
+  };
+
   const resultType = result ? getCommunityType(result.code) : null;
 
   const renderProfileField = () => {
     switch (currentField) {
+      case "gender":
+        return (
+          <div className="flex flex-wrap gap-2">
+            {genderOptions.map((option) => (
+              <button
+                key={option.value}
+                type="button"
+                onClick={() => setGender(option.value)}
+                className={chipClass(gender === option.value)}
+              >
+                {option.label}
+              </button>
+            ))}
+          </div>
+        );
       case "birthDate":
         return (
           <input
@@ -547,6 +659,111 @@ export default function CommunityDiagnosisPage() {
                 {genre}
               </button>
             ))}
+          </div>
+        );
+      case "frequentPlaces":
+        return (
+          <div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={placeQuery}
+                onChange={(e) => setPlaceQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleSearchFrequentPlaces();
+                  }
+                }}
+                placeholder="例: 新宿 居酒屋、銀座 バー"
+                className="flex-1 rounded-2xl border border-gray-200 bg-white px-4 py-3 text-sm"
+              />
+              <button
+                type="button"
+                onClick={handleSearchFrequentPlaces}
+                disabled={isSearchingPlaces}
+                className="rounded-2xl bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                {isSearchingPlaces ? "検索中" : "検索"}
+              </button>
+            </div>
+            {placeSearchMessage && (
+              <p className="mt-2 text-xs text-[var(--muted)]">{placeSearchMessage}</p>
+            )}
+            {placeResults.length > 0 && (
+              <div className="mt-3 space-y-2 rounded-2xl border border-gray-100 bg-gray-50 p-2">
+                {placeResults.map((place) => (
+                  <div key={place.placeId} className="flex items-center gap-2 rounded-xl bg-white p-2">
+                    {place.photoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={place.photoUrl}
+                        alt={place.name}
+                        className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-orange-50 text-lg">
+                        🍺
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold">{place.name}</p>
+                      <p className="truncate text-[10px] text-[var(--muted)]">{place.address}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => addFrequentPlace(place)}
+                      disabled={
+                        frequentPlaces.some((p) => p.placeId === place.placeId) ||
+                        frequentPlaces.length >= 3
+                      }
+                      className="shrink-0 rounded-full bg-[var(--accent)] px-3 py-1 text-xs font-semibold text-white disabled:opacity-40"
+                    >
+                      追加
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            {frequentPlaces.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {frequentPlaces.map((place) => (
+                  <div
+                    key={place.placeId}
+                    className="flex items-center gap-2 rounded-xl border border-orange-100 bg-white p-2"
+                  >
+                    {place.photoUrl ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={place.photoUrl}
+                        alt={place.name}
+                        className="h-10 w-10 shrink-0 rounded-lg object-cover"
+                      />
+                    ) : (
+                      <div className="grid h-10 w-10 shrink-0 place-items-center rounded-lg bg-orange-50 text-lg">
+                        🍺
+                      </div>
+                    )}
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-xs font-semibold">{place.name}</p>
+                      <p className="truncate text-[10px] text-[var(--muted)]">{place.address}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setFrequentPlaces((prev) =>
+                          prev.filter((p) => p.placeId !== place.placeId)
+                        )
+                      }
+                      className="shrink-0 rounded-full border border-gray-200 px-2 py-1 text-[10px] font-semibold text-[var(--muted)]"
+                    >
+                      削除
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <p className="mt-2 text-[11px] text-[var(--muted)]">最大3件まで登録できます</p>
           </div>
         );
       case "availability":

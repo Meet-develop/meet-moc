@@ -927,7 +927,7 @@ export default function ProfileSetupPage() {
               </p>
               {communityType && (
                 <div className="mt-2">
-                  <TypeBadge code={communityType} />
+                  <TypeBadge code={communityType} linkable />
                 </div>
               )}
             </div>

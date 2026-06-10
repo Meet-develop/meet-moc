@@ -46,7 +46,7 @@ function AxisBar({ axisKey, score }: { axisKey: AxisKey; score: number }) {
   const axis = COMMUNITY_AXES.find((item) => item.key === axisKey);
   if (!axis) return null;
 
-  const isPoleA = score * 2 > 3;
+  const isPoleA = score > 0.5;
   return (
     <div className="rounded-2xl bg-orange-50/70 px-3 py-2">
       <div className="flex items-center justify-between text-[11px] font-semibold">
@@ -58,17 +58,14 @@ function AxisBar({ axisKey, score }: { axisKey: AxisKey; score: number }) {
           {axis.poleB.label}
         </span>
       </div>
-      <div className="mt-1.5 flex items-center gap-1">
-        {[0, 1, 2].map((index) => (
-          <div
-            key={index}
-            className="h-1.5 flex-1 rounded-full"
-            style={{
-              backgroundColor:
-                index < score ? "var(--accent)" : "rgba(142, 119, 96, 0.25)",
-            }}
-          />
-        ))}
+      <div
+        className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full"
+        style={{ backgroundColor: "rgba(142, 119, 96, 0.25)" }}
+      >
+        <div
+          className="h-full rounded-full transition-all duration-500"
+          style={{ width: `${score * 100}%`, backgroundColor: "var(--accent)" }}
+        />
       </div>
     </div>
   );
