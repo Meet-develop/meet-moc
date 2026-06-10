@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { use, useState } from "react";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getCommunityType, COMMUNITY_AXES, COMMUNITY_TYPES } from "@/lib/community-diagnosis/types";
@@ -32,8 +32,9 @@ function TypeIllustration({ type }: { type: ReturnType<typeof getCommunityType> 
   );
 }
 
-export default function TypeDetailPage({ params }: { params: { code: string } }) {
-  const type = getCommunityType(params.code);
+export default function TypeDetailPage({ params }: { params: Promise<{ code: string }> }) {
+  const { code } = use(params);
+  const type = getCommunityType(code);
   if (!type) notFound();
 
   return (
