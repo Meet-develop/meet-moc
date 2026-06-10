@@ -3,6 +3,8 @@ import { prisma } from "@/lib/prisma";
 import { COMMUNITY_AXES, getCommunityType } from "@/lib/community-diagnosis/types";
 
 type ProfileUpdates = {
+  avatarIcon?: string;
+  displayName?: string;
   gender?: "male" | "female" | "other" | "unspecified";
   birthDate?: string;
   playFrequency?: "low" | "medium" | "high";
@@ -52,6 +54,10 @@ export async function POST(request: Request) {
 
   const updates = body.profileUpdates ?? {};
   const profileData = {
+    ...(updates.avatarIcon !== undefined ? { avatarIcon: updates.avatarIcon } : {}),
+    ...(updates.displayName !== undefined && updates.displayName.trim().length > 0
+      ? { displayName: updates.displayName.trim() }
+      : {}),
     ...(updates.gender !== undefined ? { gender: updates.gender } : {}),
     ...(updates.birthDate !== undefined
       ? { birthDate: updates.birthDate ? new Date(updates.birthDate) : null }
