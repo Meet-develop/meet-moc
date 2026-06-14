@@ -191,6 +191,7 @@ export default function EventDetailPage() {
     "same_members_new_place" | "same_place_new_members" | null
   >(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [showShareFallback, setShowShareFallback] = useState(false);
 
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
@@ -236,6 +237,22 @@ export default function EventDetailPage() {
       active = false;
       subscription.unsubscribe();
     };
+  }, []);
+
+  useEffect(() => {
+    try {
+      const searchParams = new URL(window.location.href).searchParams;
+      const ref = searchParams.get("ref");
+      const inviteToken = searchParams.get("inviteToken");
+      if (ref) {
+        window.sessionStorage.setItem("pendingInviteRef", ref);
+      }
+      if (inviteToken) {
+        window.sessionStorage.setItem("pendingInviteToken", inviteToken);
+      }
+    } catch {
+      // ignore
+    }
   }, []);
 
   useEffect(() => {
@@ -465,10 +482,20 @@ export default function EventDetailPage() {
       setIsAuthOverlayOpen(true);
       return;
     }
+    
+    // Get inviteToken from sessionStorage if user accessed via invite link
+    const inviteToken = (() => {
+      try {
+        return window.sessionStorage.getItem("pendingInviteToken");
+      } catch {
+        return undefined;
+      }
+    })();
+    
     await fetch(`/api/events/${eventId}/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ userId, inviteToken }),
     });
     const query = userId ? `?viewerId=${userId}` : "";
     const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
@@ -745,15 +772,67 @@ export default function EventDetailPage() {
   };
 
   const handleCreateInviteLink = async () => {
-    if (!event || !userId) return;
+    if (!event || !userId) return null;
 
     if (event.visibility === "private" && userId !== event.owner.userId) {
       setInviteMessage("プライベートイベントではオーナーのみ招待リンクを作成できます。");
-      return;
+      return null;
     }
 
-    setInviteLink(`${window.location.origin}/events/${eventId}`);
-    setInviteMessage("招待リンクを作成しました。");
+    setInviteMessage(null);
+    try {
+      const response = await fetch(`/api/events/${eventId}/invites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actorId: userId, mode: "link" }),
+      });
+
+      if (!response.ok) {
+        setInviteMessage("招待リンクの作成に失敗しました。");
+        return null;
+      }
+
+      const data = await response.json();
+      const token = data.token as string | undefined;
+      if (!token) {
+        setInviteMessage("招待リンクの作成に失敗しました。");
+        return null;
+      }
+
+      const url = `${window.location.origin}/events/${eventId}?inviteToken=${encodeURIComponent(
+        token
+      )}&ref=${encodeURIComponent(userId)}`;
+      setInviteLink(url);
+      setInviteMessage("招待リンクを作成しました。");
+      return url;
+    } catch {
+      setInviteMessage("招待リンクの作成に失敗しました。");
+      return null;
+    }
+  };
+
+  const handleShare = async () => {
+    if (!event) return;
+
+    // Ensure we have an invite link (server-backed token) so tracking works.
+    const createdInviteLink = !inviteLink && userId ? await handleCreateInviteLink() : null;
+    const urlToShare =
+      inviteLink ??
+      createdInviteLink ??
+      `${window.location.origin}/events/${eventId}${userId ? `?ref=${encodeURIComponent(userId)}` : ""}`;
+    const text = `このイベントに一緒に参加しませんか？ ${event.purpose} ${urlToShare}`;
+
+    try {
+      if ((navigator as any).share) {
+        await (navigator as any).share({ title: event.purpose, text, url: urlToShare });
+        setInviteMessage("共有しました。");
+        return;
+      }
+    } catch (error) {
+      // navigator.share failed, show fallback UI
+    }
+
+    setShowShareFallback(true);
   };
 
   const handleCalendarDownload = async () => {
@@ -848,6 +927,15 @@ export default function EventDetailPage() {
               <span className="material-symbols-rounded">chevron_left</span>
             </Link>
             <h1 className="text-lg font-semibold">イベント詳細</h1>
+            <div className="ml-auto hidden">
+              <button
+                onClick={handleShare}
+                className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+                aria-label="共有"
+              >
+                <span className="material-symbols-rounded">share</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -862,8 +950,20 @@ export default function EventDetailPage() {
                 {visibilityMeta[event.visibility].label}
               </p>
               <h1 className="text-3xl font-semibold">{event.purpose}</h1>
-              <div className="mt-3 text-sm text-[var(--muted)]">
-                <AvatarName displayName={event.owner.displayName} avatarIcon={event.owner.avatarIcon} />
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="text-sm text-[var(--muted)]">
+                  <AvatarName displayName={event.owner.displayName} avatarIcon={event.owner.avatarIcon} />
+                </div>
+                <div>
+                  <button
+                    onClick={handleShare}
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm"
+                    aria-label="共有"
+                  >
+                    <span className="material-symbols-rounded">share</span>
+                    共有
+                  </button>
+                </div>
               </div>
           </div>
 
@@ -1512,6 +1612,71 @@ export default function EventDetailPage() {
                 ? "オーナーに申請する"
                 : "招待する"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {showShareFallback && event && (
+        <div className="fixed inset-0 z-[60] flex items-end bg-black/35 p-3 sm:items-center sm:justify-center sm:p-6">
+          <div className="w-full max-w-md rounded-3xl bg-[var(--surface)] p-4 shadow-2xl">
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-semibold">共有</h3>
+              <button
+                onClick={() => setShowShareFallback(false)}
+                className="grid h-8 w-8 place-items-center rounded-full bg-white text-[var(--muted)]"
+                aria-label="閉じる"
+              >
+                <span className="material-symbols-rounded">close</span>
+              </button>
+            </div>
+
+            <div className="mt-4 flex flex-col gap-3">
+              <p className="text-sm text-[var(--muted)]">このイベントを共有する</p>
+              <div className="grid grid-cols-1 gap-2">
+                <button
+                  onClick={() => {
+                    const url = inviteLink ?? `${window.location.origin}/events/${eventId}?ref=${userId ?? ""}`;
+                    const text = `このイベントに一緒に参加しませんか？ ${event.purpose} ${url}`;
+                    window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`);
+                    console.log("[DEBUG] LINE share clicked, url:", url);
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-full bg-green-500 hover:bg-green-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors"
+                >
+                  <span className="material-symbols-rounded">chat</span>
+                  LINEで共有
+                </button>
+                <button
+                  onClick={() => {
+                    const url = inviteLink ?? `${window.location.origin}/events/${eventId}?ref=${userId ?? ""}`;
+                    const text = `このイベントに一緒に参加しませんか？ ${event.purpose}`;
+                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`);
+                    console.log("[DEBUG] X (Twitter) share clicked, url:", url);
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-full bg-black hover:bg-gray-800 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors"
+                >
+                  <span className="material-symbols-rounded">share</span>
+                  Xで共有
+                </button>
+                <button
+                  onClick={() => {
+                    const url = inviteLink ?? `${window.location.origin}/events/${eventId}?ref=${userId ?? ""}`;
+                    try {
+                      navigator.clipboard.writeText(url);
+                      setInviteMessage("招待リンクをコピーしました。");
+                      console.log("[DEBUG] Link copied:", url);
+                    } catch (error) {
+                      console.log("[DEBUG] Copy failed:", error);
+                      setInviteMessage("コピーに失敗しました。リンクを長押しして共有してください。");
+                    }
+                    setShowShareFallback(false);
+                  }}
+                  className="flex items-center justify-center gap-2 rounded-full bg-white border-2 border-gray-300 hover:bg-gray-50 px-4 py-3 text-sm font-semibold text-[var(--foreground)] shadow-sm transition-colors"
+                >
+                  <span className="material-symbols-rounded">content_copy</span>
+                  リンクをコピー
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       )}

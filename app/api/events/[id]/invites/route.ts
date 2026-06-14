@@ -50,8 +50,20 @@ export async function POST(
       { status: 403 }
     );
   }
+  // If creating a shareable invite link, create a token record and return it.
+  if (body.mode === "link") {
+    const created = await prisma.eventInvite.create({
+      data: {
+        eventId: event.id,
+        inviterId: body.actorId as string,
+        inviteeId: null,
+        token: crypto.randomUUID(),
+        status: "pending",
+      },
+    });
 
-
+    return NextResponse.json({ token: created.token });
+  }
 
   if (!body.friendIds || body.friendIds.length === 0) {
     return NextResponse.json(
