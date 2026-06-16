@@ -1150,7 +1150,7 @@ export default function EventDetailPage() {
                     {canDeleteCandidate(candidate) && (
                       <button
                         onClick={() => handleDeleteTimeCandidate(candidate.id)}
-                        className="absolute -left-2.5 -top-2.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-100 text-gray-400 hover:bg-rose-100 hover:text-rose-500"
+                        className="absolute left-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
                         aria-label="候補を削除"
                       >
                         <span className="material-symbols-rounded text-[12px] leading-none">close</span>
@@ -1227,7 +1227,7 @@ export default function EventDetailPage() {
                     {canDeleteCandidate(candidate) && (
                       <button
                         onClick={() => handleDeletePlaceCandidate(candidate.id)}
-                        className="absolute -left-2.5 -top-2.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-100 text-gray-400 hover:bg-rose-100 hover:text-rose-500"
+                        className="absolute left-1 top-1 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
                         aria-label="候補を削除"
                       >
                         <span className="material-symbols-rounded text-[12px] leading-none">close</span>
@@ -1459,9 +1459,9 @@ export default function EventDetailPage() {
               <p className="mb-2 text-xs font-semibold text-[var(--muted)]">おすすめ</p>
               {isSuggestionsLoading ? (
                 <p className="py-3 text-center text-xs text-[var(--muted)]">読み込み中...</p>
-              ) : suggestedPlaces.length > 0 ? (
+              ) : suggestedPlaces.filter((p) => !event.placeCandidates.some((c) => c.placeId === p.placeId)).length > 0 ? (
                 <ul className="space-y-2 text-sm">
-                  {suggestedPlaces.map((place) => (
+                  {suggestedPlaces.filter((p) => !event.placeCandidates.some((c) => c.placeId === p.placeId)).map((place) => (
                     <li key={place.placeId}>
                       <button
                         onClick={() => handlePlaceProposal(place)}
@@ -1512,7 +1512,7 @@ export default function EventDetailPage() {
 
               {placeResults.length > 0 && (
                 <ul className="max-h-48 space-y-2 overflow-y-auto pr-1 text-sm">
-                  {placeResults.map((place) => (
+                  {placeResults.filter((p) => !event.placeCandidates.some((c) => c.placeId === p.placeId)).map((place) => (
                     <li key={place.placeId}>
                       <button
                         onClick={() => handlePlaceProposal(place)}
