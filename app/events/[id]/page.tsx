@@ -729,6 +729,7 @@ export default function EventDetailPage() {
 
   const handleDeleteTimeCandidate = async (candidateId: string) => {
     if (!userId || !event) return;
+    if (!window.confirm("この日程候補を削除しますか？")) return;
     await fetch(`/api/events/${eventId}/candidates/time/${candidateId}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -744,6 +745,7 @@ export default function EventDetailPage() {
 
   const handleDeletePlaceCandidate = async (candidateId: string) => {
     if (!userId || !event) return;
+    if (!window.confirm("この場所候補を削除しますか？")) return;
     await fetch(`/api/events/${eventId}/candidates/place/${candidateId}`, {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
