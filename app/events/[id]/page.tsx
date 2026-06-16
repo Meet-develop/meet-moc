@@ -1138,7 +1138,7 @@ export default function EventDetailPage() {
                 </button>
                 <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-sky-700">
                   <span className="material-symbols-rounded text-sm">auto_awesome</span>
-                  AI推測 TOP3
+                  最大5件・日付順
                 </span>
               </h2>
               <ul className="mt-4 grid gap-3 text-sm text-[var(--muted)] md:grid-cols-2">
@@ -1379,7 +1379,7 @@ export default function EventDetailPage() {
             {dateSuggestions.length > 0 && (
               <div className="mt-4">
                 <p className="mb-2 text-xs font-semibold text-[var(--muted)]">候補日程</p>
-                <ul className="grid grid-cols-2 gap-2">
+                <ul className="space-y-2">
                   {dateSuggestions.map((dateStr) => {
                     const date = new Date(dateStr);
                     const weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
@@ -1389,15 +1389,15 @@ export default function EventDetailPage() {
                       <li key={dateStr}>
                         <button
                           onClick={() => handleTimeProposal(dateStr)}
-                          className="flex w-full items-center gap-2 rounded-2xl bg-white px-3 py-2.5 text-left shadow-sm hover:bg-orange-50"
+                          className="flex w-full items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-sm hover:bg-orange-50"
                         >
-                          <div className="flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-xl bg-orange-50">
+                          <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl bg-orange-50">
                             <span className="text-[9px] font-semibold text-[var(--accent)]">{month}月</span>
-                            <span className="text-sm font-bold leading-none text-[var(--accent)]">{day}</span>
+                            <span className="text-base font-bold leading-none text-[var(--accent)]">{day}</span>
                           </div>
                           <div className="min-w-0">
-                            <p className="text-xs font-semibold text-[var(--foreground)]">{weekday}曜日</p>
-                            <p className="text-[10px] text-[var(--muted)]">18:00〜</p>
+                            <p className="font-semibold text-[var(--foreground)]">{weekday}曜日</p>
+                            <p className="text-xs text-[var(--muted)]">18:00〜</p>
                           </div>
                         </button>
                       </li>
