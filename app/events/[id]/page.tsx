@@ -882,7 +882,7 @@ export default function EventDetailPage() {
               </p>
               <p className="mt-2 text-sm font-semibold">{event.area ?? "未設定"}</p>
             </div>
-            <div className="p-1">
+            <div className="min-w-0 p-1">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
                 場所
               </p>
@@ -910,14 +910,16 @@ export default function EventDetailPage() {
                       }
                     );
                   }}
-                  className="mt-2 text-left"
+                  className="mt-2 w-full overflow-hidden text-left"
                 >
-                  <p className="text-sm font-semibold underline-offset-2 hover:underline">
-                    {event.fixedPlaceName}
-                  </p>
-                  <p className="text-xs text-[var(--muted)]">
-                    {event.fixedPlaceAddress ?? ""}
-                  </p>
+                  <div className="mt-2 flex items-center gap-1">
+                    <span className="material-symbols-rounded text-base text-[var(--accent)] shrink-0">location_on</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-[var(--accent)]">{event.fixedPlaceName}</p>
+                      <p className="text-xs text-[var(--muted)] truncate">{event.fixedPlaceAddress ?? ""}</p>
+                    </div>
+                    <span className="material-symbols-rounded text-sm text-[var(--muted)] shrink-0">open_in_new</span>
+                  </div>
                 </button>
               ) : (
                 <>
