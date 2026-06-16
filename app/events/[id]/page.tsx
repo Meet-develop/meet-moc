@@ -122,11 +122,6 @@ function generateWeekendSuggestions(existingStartTimes: string[]): string[] {
   return suggestions;
 }
 
-function formatDateChip(localDateStr: string): string {
-  const date = new Date(localDateStr);
-  const weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
-  return `${weekday} ${date.getMonth() + 1}/${date.getDate()}`;
-}
 
 const formatStart = (start?: string | null) => {
   if (!start) return "未確定";
@@ -459,7 +454,7 @@ export default function EventDetailPage() {
     const baseQuery = [event.area, event.purpose].filter(Boolean).join(" ") || "東京";
     const query = [baseQuery, category].filter(Boolean).join(" ");
     const response = await fetch(
-      `/api/places/search?query=${encodeURIComponent(query)}&limit=5`
+      `/api/places/search?query=${encodeURIComponent(query)}&limit=10`
     );
     if (response.ok) {
       const data = (await response.json()) as { places: PlaceResult[] };
@@ -1150,10 +1145,10 @@ export default function EventDetailPage() {
                     {canDeleteCandidate(candidate) && (
                       <button
                         onClick={() => handleDeleteTimeCandidate(candidate.id)}
-                        className="absolute left-4 top-4 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
+                        className="absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
                         aria-label="候補を削除"
                       >
-                        <span className="material-symbols-rounded leading-none" style={{ fontSize: "8px" }}>close</span>
+                        <span className="material-symbols-rounded leading-none" style={{ fontSize: "16px" }}>close</span>
                       </button>
                     )}
                     <div className="flex items-center gap-3">
@@ -1227,10 +1222,10 @@ export default function EventDetailPage() {
                     {canDeleteCandidate(candidate) && (
                       <button
                         onClick={() => handleDeletePlaceCandidate(candidate.id)}
-                        className="absolute left-4 top-4 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
+                        className="absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
                         aria-label="候補を削除"
                       >
-                        <span className="material-symbols-rounded leading-none" style={{ fontSize: "8px" }}>close</span>
+                        <span className="material-symbols-rounded leading-none" style={{ fontSize: "16px" }}>close</span>
                       </button>
                     )}
                     <div className="flex min-w-0 items-center gap-3">
@@ -1382,17 +1377,31 @@ export default function EventDetailPage() {
             {dateSuggestions.length > 0 && (
               <div className="mt-4">
                 <p className="mb-2 text-xs font-semibold text-[var(--muted)]">候補日程</p>
-                <div className="flex flex-wrap gap-2">
-                  {dateSuggestions.map((dateStr) => (
-                    <button
-                      key={dateStr}
-                      onClick={() => handleTimeProposal(dateStr)}
-                      className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] shadow-sm hover:bg-orange-50 hover:text-[var(--accent)]"
-                    >
-                      {formatDateChip(dateStr)}
-                    </button>
-                  ))}
-                </div>
+                <ul className="grid grid-cols-2 gap-2">
+                  {dateSuggestions.map((dateStr) => {
+                    const date = new Date(dateStr);
+                    const weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
+                    const month = date.getMonth() + 1;
+                    const day = date.getDate();
+                    return (
+                      <li key={dateStr}>
+                        <button
+                          onClick={() => handleTimeProposal(dateStr)}
+                          className="flex w-full items-center gap-2 rounded-2xl bg-white px-3 py-2.5 text-left shadow-sm hover:bg-orange-50"
+                        >
+                          <div className="flex h-9 w-9 shrink-0 flex-col items-center justify-center rounded-xl bg-orange-50">
+                            <span className="text-[9px] font-semibold text-[var(--accent)]">{month}月</span>
+                            <span className="text-sm font-bold leading-none text-[var(--accent)]">{day}</span>
+                          </div>
+                          <div className="min-w-0">
+                            <p className="text-xs font-semibold text-[var(--foreground)]">{weekday}曜日</p>
+                            <p className="text-[10px] text-[var(--muted)]">18:00〜</p>
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               </div>
             )}
 
