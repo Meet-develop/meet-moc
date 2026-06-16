@@ -1145,7 +1145,7 @@ export default function EventDetailPage() {
                     {canDeleteCandidate(candidate) && (
                       <button
                         onClick={() => handleDeleteTimeCandidate(candidate.id)}
-                        className="absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
+                        className="absolute left-0 top-0 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
                         aria-label="候補を削除"
                       >
                         <span className="material-symbols-rounded leading-none" style={{ fontSize: "16px" }}>close</span>
@@ -1222,7 +1222,7 @@ export default function EventDetailPage() {
                     {canDeleteCandidate(candidate) && (
                       <button
                         onClick={() => handleDeletePlaceCandidate(candidate.id)}
-                        className="absolute left-2 top-2 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
+                        className="absolute left-0 top-0 z-10 flex h-5 w-5 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full bg-gray-400 text-white hover:bg-rose-500"
                         aria-label="候補を削除"
                       >
                         <span className="material-symbols-rounded leading-none" style={{ fontSize: "16px" }}>close</span>
