@@ -901,9 +901,13 @@ export default function EventDetailPage() {
                         lat: 0,
                         lng: 0,
                         photoUrl: null,
-                        mapsUrl: event.fixedPlaceAddress
-                          ? `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(event.fixedPlaceAddress)}`
-                          : undefined,
+                        mapsUrl: (() => {
+                          const query = event.fixedPlaceAddress ?? event.fixedPlaceName ?? "";
+                          const base = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+                          return event.fixedPlaceId
+                            ? `${base}&query_place_id=${encodeURIComponent(event.fixedPlaceId)}`
+                            : query ? base : undefined;
+                        })(),
                         score: 0,
                         source: "system",
                         myScore: null,
