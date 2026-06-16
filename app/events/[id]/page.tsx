@@ -1138,7 +1138,7 @@ export default function EventDetailPage() {
                 </button>
                 <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-sky-700">
                   <span className="material-symbols-rounded text-sm">auto_awesome</span>
-                  最大5件・日付順
+                  AI推測
                 </span>
               </h2>
               <ul className="mt-4 grid gap-3 text-sm text-[var(--muted)] md:grid-cols-2">
@@ -1215,7 +1215,7 @@ export default function EventDetailPage() {
                 </button>
                 <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-1 text-[10px] font-semibold tracking-[0.08em] text-amber-700">
                   <span className="material-symbols-rounded text-sm">auto_awesome</span>
-                  候補 最大5件
+                  AI推測
                 </span>
               </h2>
               <ul className="mt-4 grid gap-3 text-sm text-[var(--muted)] md:grid-cols-2">
