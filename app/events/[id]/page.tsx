@@ -1150,10 +1150,10 @@ export default function EventDetailPage() {
                     {canDeleteCandidate(candidate) && (
                       <button
                         onClick={() => handleDeleteTimeCandidate(candidate.id)}
-                        className="absolute left-2 top-2 grid h-5 w-5 place-items-center rounded-full bg-gray-100 text-gray-400 hover:bg-rose-100 hover:text-rose-500"
+                        className="absolute -left-2.5 -top-2.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-100 text-gray-400 hover:bg-rose-100 hover:text-rose-500"
                         aria-label="候補を削除"
                       >
-                        <span className="material-symbols-rounded text-xs">close</span>
+                        <span className="material-symbols-rounded text-[12px] leading-none">close</span>
                       </button>
                     )}
                     <div className="flex items-center gap-3">
@@ -1223,14 +1223,14 @@ export default function EventDetailPage() {
               </h2>
               <ul className="mt-4 grid gap-3 text-sm text-[var(--muted)] md:grid-cols-2">
                 {event.placeCandidates.map((candidate) => (
-                  <li key={candidate.id} className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-sm">
+                  <li key={candidate.id} className="relative rounded-2xl bg-white p-4 shadow-sm">
                     {canDeleteCandidate(candidate) && (
                       <button
                         onClick={() => handleDeletePlaceCandidate(candidate.id)}
-                        className="absolute left-2 top-2 grid h-5 w-5 place-items-center rounded-full bg-gray-100 text-gray-400 hover:bg-rose-100 hover:text-rose-500"
+                        className="absolute -left-2.5 -top-2.5 z-10 flex h-5 w-5 items-center justify-center rounded-full bg-gray-100 text-gray-400 hover:bg-rose-100 hover:text-rose-500"
                         aria-label="候補を削除"
                       >
-                        <span className="material-symbols-rounded text-xs">close</span>
+                        <span className="material-symbols-rounded text-[12px] leading-none">close</span>
                       </button>
                     )}
                     <div className="flex min-w-0 items-center gap-3">
