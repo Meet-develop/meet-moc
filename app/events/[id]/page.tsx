@@ -92,6 +92,42 @@ type PlaceResult = {
 const plusButtonClass =
   "grid h-7 w-7 place-items-center rounded-full border border-dashed border-gray-400 bg-gray-50 text-gray-500";
 
+const PLACE_CATEGORIES = ["居酒屋", "カフェ", "レストラン", "バー", "焼肉"];
+
+function generateWeekendSuggestions(existingStartTimes: string[]): string[] {
+  const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
+  const existingDates = new Set(
+    existingStartTimes.map((iso) => {
+      const jst = new Date(new Date(iso).getTime() + JST_OFFSET_MS);
+      return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, "0")}-${String(jst.getUTCDate()).padStart(2, "0")}`;
+    })
+  );
+  const suggestions: string[] = [];
+  const cursor = new Date();
+  cursor.setDate(cursor.getDate() + 1);
+  cursor.setHours(0, 0, 0, 0);
+  while (suggestions.length < 5) {
+    const dow = cursor.getDay();
+    if (dow === 0 || dow === 6) {
+      const y = cursor.getFullYear();
+      const m = String(cursor.getMonth() + 1).padStart(2, "0");
+      const d = String(cursor.getDate()).padStart(2, "0");
+      const dateStr = `${y}-${m}-${d}`;
+      if (!existingDates.has(dateStr)) {
+        suggestions.push(`${dateStr}T18:00`);
+      }
+    }
+    cursor.setDate(cursor.getDate() + 1);
+  }
+  return suggestions;
+}
+
+function formatDateChip(localDateStr: string): string {
+  const date = new Date(localDateStr);
+  const weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
+  return `${weekday} ${date.getMonth() + 1}/${date.getDate()}`;
+}
+
 const formatStart = (start?: string | null) => {
   if (!start) return "未確定";
   return formatEventStartLabel(start, true);
@@ -194,6 +230,10 @@ export default function EventDetailPage() {
 
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
+  const [suggestedPlaces, setSuggestedPlaces] = useState<PlaceResult[]>([]);
+  const [placeCategory, setPlaceCategory] = useState("");
+  const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
+  const [dateSuggestions, setDateSuggestions] = useState<string[]>([]);
   const [showTimeOverlay, setShowTimeOverlay] = useState(false);
   const [showPlaceOverlay, setShowPlaceOverlay] = useState(false);
   const [selectedPlaceDetail, setSelectedPlaceDetail] = useState<EventDetail["placeCandidates"][number] | null>(null);
@@ -408,7 +448,24 @@ export default function EventDetailPage() {
       setInviteMessage(participantActionNotice);
       return;
     }
+    const existing = event?.timeCandidates.map((c) => c.startTime) ?? [];
+    setDateSuggestions(generateWeekendSuggestions(existing));
     setShowTimeOverlay(true);
+  };
+
+  const fetchPlaceSuggestions = async (category = "") => {
+    if (!event) return;
+    setIsSuggestionsLoading(true);
+    const baseQuery = event.area ?? event.purpose ?? "東京";
+    const query = [baseQuery, category].filter(Boolean).join(" ");
+    const response = await fetch(
+      `/api/places/search?query=${encodeURIComponent(query)}&limit=5`
+    );
+    if (response.ok) {
+      const data = (await response.json()) as { places: PlaceResult[] };
+      setSuggestedPlaces(data.places ?? []);
+    }
+    setIsSuggestionsLoading(false);
   };
 
   const openPlaceProposalOverlay = () => {
@@ -421,7 +478,10 @@ export default function EventDetailPage() {
       setInviteMessage(participantActionNotice);
       return;
     }
+    setPlaceCategory("");
+    setSuggestedPlaces([]);
     setShowPlaceOverlay(true);
+    void fetchPlaceSuggestions();
   };
 
   const statusMeta = useMemo(() => {
@@ -702,6 +762,8 @@ export default function EventDetailPage() {
       setShowPlaceOverlay(false);
       setPlaceQuery("");
       setPlaceResults([]);
+      setSuggestedPlaces([]);
+      setPlaceCategory("");
     }
   };
 
@@ -1254,7 +1316,7 @@ export default function EventDetailPage() {
 
       {showTimeOverlay && (
         <div className="fixed inset-0 z-[60] flex items-end bg-black/35 p-3 sm:items-center sm:justify-center sm:p-6">
-          <div className="w-full max-w-md rounded-3xl bg-[var(--surface)] p-4 shadow-2xl">
+          <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-3xl bg-[var(--surface)] p-4 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold">別の日程を提案</h3>
               <button
@@ -1265,7 +1327,31 @@ export default function EventDetailPage() {
                 <span className="material-symbols-rounded">close</span>
               </button>
             </div>
-            <div className="mt-4 flex flex-col gap-2">
+
+            {dateSuggestions.length > 0 && (
+              <div className="mt-4">
+                <p className="mb-2 text-xs font-semibold text-[var(--muted)]">候補日程</p>
+                <div className="flex flex-wrap gap-2">
+                  {dateSuggestions.map((dateStr) => (
+                    <button
+                      key={dateStr}
+                      onClick={() => handleTimeProposal(dateStr)}
+                      className="rounded-full bg-white px-3 py-1.5 text-xs font-semibold text-[var(--foreground)] shadow-sm hover:bg-orange-50 hover:text-[var(--accent)]"
+                    >
+                      {formatDateChip(dateStr)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 flex items-center gap-2">
+              <div className="h-px flex-1 bg-gray-200" />
+              <p className="text-xs text-[var(--muted)]">またはカスタム日時</p>
+              <div className="h-px flex-1 bg-gray-200" />
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2">
               <input
                 type="datetime-local"
                 value={proposalStart}
@@ -1286,7 +1372,7 @@ export default function EventDetailPage() {
 
       {showPlaceOverlay && (
         <div className="fixed inset-0 z-[60] flex items-end bg-black/35 p-3 sm:items-center sm:justify-center sm:p-6">
-          <div className="w-full max-w-md rounded-3xl bg-[var(--surface)] p-4 shadow-2xl">
+          <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-3xl bg-[var(--surface)] p-4 shadow-2xl">
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold">場所を提案</h3>
               <button
@@ -1297,7 +1383,73 @@ export default function EventDetailPage() {
                 <span className="material-symbols-rounded">close</span>
               </button>
             </div>
-            <div className="mt-4 flex flex-col gap-2">
+
+            <div className="mt-3 flex flex-wrap gap-1.5">
+              {PLACE_CATEGORIES.map((cat) => (
+                <button
+                  key={cat}
+                  onClick={() => {
+                    const next = placeCategory === cat ? "" : cat;
+                    setPlaceCategory(next);
+                    void fetchPlaceSuggestions(next);
+                  }}
+                  className={`rounded-full px-3 py-1 text-xs font-semibold ${
+                    placeCategory === cat
+                      ? "bg-[var(--accent)] text-white"
+                      : "bg-white text-[var(--foreground)] shadow-sm"
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+
+            <div className="mt-3">
+              <p className="mb-2 text-xs font-semibold text-[var(--muted)]">おすすめ</p>
+              {isSuggestionsLoading ? (
+                <p className="py-3 text-center text-xs text-[var(--muted)]">読み込み中...</p>
+              ) : suggestedPlaces.length > 0 ? (
+                <ul className="space-y-2 text-sm">
+                  {suggestedPlaces.map((place) => (
+                    <li
+                      key={place.placeId}
+                      className="flex flex-col gap-2 rounded-2xl bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                    >
+                      <div className="min-w-0 flex items-center gap-2">
+                        <Image
+                          src={place.photoUrl ?? "/file.svg"}
+                          alt={`${place.name} の写真`}
+                          width={40}
+                          height={40}
+                          className="h-10 w-10 rounded-xl object-cover"
+                        />
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-[var(--foreground)]">{place.name}</p>
+                          <p className="truncate text-xs text-[var(--muted)]">{place.address}</p>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => handlePlaceProposal(place)}
+                        className="flex w-full items-center justify-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-[var(--accent)] sm:w-auto"
+                      >
+                        <span className="material-symbols-rounded">add</span>
+                        追加
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="py-2 text-center text-xs text-[var(--muted)]">候補が見つかりませんでした</p>
+              )}
+            </div>
+
+            <div className="mt-4 flex items-center gap-2">
+              <div className="h-px flex-1 bg-gray-200" />
+              <p className="text-xs text-[var(--muted)]">他の場所を探す</p>
+              <div className="h-px flex-1 bg-gray-200" />
+            </div>
+
+            <div className="mt-3 flex flex-col gap-2">
               <div className="flex flex-col gap-2 sm:flex-row">
                 <input
                   value={placeQuery}
@@ -1315,7 +1467,7 @@ export default function EventDetailPage() {
               </div>
 
               {placeResults.length > 0 && (
-                <ul className="max-h-64 space-y-2 overflow-y-auto pr-1 text-sm">
+                <ul className="max-h-48 space-y-2 overflow-y-auto pr-1 text-sm">
                   {placeResults.map((place) => (
                     <li
                       key={place.placeId}
