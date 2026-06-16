@@ -443,6 +443,10 @@ export default function EventDetailPage() {
       setInviteMessage(participantActionNotice);
       return;
     }
+    if ((event?.timeCandidates.length ?? 0) >= 5) {
+      window.alert("日程候補は最大5件までです。既存の候補を削除してから追加してください。");
+      return;
+    }
     const existing = event?.timeCandidates.map((c) => c.startTime) ?? [];
     setDateSuggestions(generateWeekendSuggestions(existing));
     setShowTimeOverlay(true);
@@ -471,6 +475,10 @@ export default function EventDetailPage() {
     }
     if (!canAccessParticipantActions) {
       setInviteMessage(participantActionNotice);
+      return;
+    }
+    if ((event?.placeCandidates.length ?? 0) >= 5) {
+      window.alert("場所候補は最大5件までです。既存の候補を削除してから追加してください。");
       return;
     }
     setPlaceCategory("");
@@ -965,7 +973,7 @@ export default function EventDetailPage() {
                 日程
               </p>
               <p className="mt-2 text-sm font-semibold">
-                {formatStart(event.fixedStartTime)}
+                {event.fixedStartTime ? formatStart(event.fixedStartTime) : "候補から決定"}
               </p>
             </div>
             <div className="p-1">
