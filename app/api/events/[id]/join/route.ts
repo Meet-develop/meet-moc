@@ -2,6 +2,10 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { syncApprovedEventFriendships } from "@/lib/event-friendships";
 import { createAppNotification } from "@/lib/notification-delivery";
+import {
+  needsOwnerApprovalByDeadline,
+  shouldAutoApprove,
+} from "@/lib/event-approval";
 
 const needsOwnerApprovalByDeadline = (event: {
   scheduleMode: "fixed" | "candidate";
@@ -91,16 +95,20 @@ export async function POST(
   const isInvitedByOwner =
     pendingInvite && pendingInvite.inviterId === event.ownerId;
 
-  const overCapacity = approvedCount >= event.capacity;
-  const requiresApprovalByDeadline = needsOwnerApprovalByDeadline(event);
-  const requiresApprovalByVisibility =
-    (event.visibility === "limited" || event.visibility === "private") &&
-    !isInvitedByOwner;
+  const shouldAuto = shouldAutoApprove(
+    {
+      scheduleMode: event.scheduleMode,
+      status: event.status,
+      fixedStartTime: event.fixedStartTime,
+      timeCandidates: event.timeCandidates ?? [],
+      visibility: event.visibility,
+      capacity: event.capacity,
+    },
+    Boolean(isInvitedByOwner),
+    approvedCount
+  );
 
-  const shouldAutoApprove =
-    !overCapacity && !requiresApprovalByDeadline && !requiresApprovalByVisibility;
-
-  const nextStatus = shouldAutoApprove ? "approved" : "requested";
+  const nextStatus = shouldAuto ? "approved" : "requested";
 
   if (pendingInvite) {
     await prisma.eventInvite.update({
