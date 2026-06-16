@@ -729,6 +729,39 @@ export default function EventDetailPage() {
     }
   };
 
+  const canDeleteCandidate = (candidate: { proposedBy?: string | null }) =>
+    !candidateActionsDisabled && (isOwner || (userId !== null && candidate.proposedBy === userId));
+
+  const handleDeleteTimeCandidate = async (candidateId: string) => {
+    if (!userId || !event) return;
+    await fetch(`/api/events/${eventId}/candidates/time/${candidateId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+    const query = userId ? `?viewerId=${userId}` : "";
+    const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
+    if (response.ok) {
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+    }
+  };
+
+  const handleDeletePlaceCandidate = async (candidateId: string) => {
+    if (!userId || !event) return;
+    await fetch(`/api/events/${eventId}/candidates/place/${candidateId}`, {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    });
+    const query = userId ? `?viewerId=${userId}` : "";
+    const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
+    if (response.ok) {
+      const data = (await response.json()) as EventDetail;
+      setEvent(data);
+    }
+  };
+
   const handlePlaceSearch = async () => {
     if (!placeQuery.trim()) return;
     const response = await fetch(`/api/places/search?query=${encodeURIComponent(placeQuery)}`);
@@ -1113,7 +1146,16 @@ export default function EventDetailPage() {
               </h2>
               <ul className="mt-4 grid gap-3 text-sm text-[var(--muted)] md:grid-cols-2">
                 {event.timeCandidates.map((candidate) => (
-                  <li key={candidate.id} className="rounded-2xl bg-white p-4 shadow-sm">
+                  <li key={candidate.id} className="relative rounded-2xl bg-white p-4 shadow-sm">
+                    {canDeleteCandidate(candidate) && (
+                      <button
+                        onClick={() => handleDeleteTimeCandidate(candidate.id)}
+                        className="absolute left-2 top-2 grid h-5 w-5 place-items-center rounded-full bg-gray-100 text-gray-400 hover:bg-rose-100 hover:text-rose-500"
+                        aria-label="候補を削除"
+                      >
+                        <span className="material-symbols-rounded text-xs">close</span>
+                      </button>
+                    )}
                     <div className="flex items-center gap-3">
                       <p className="min-w-0 flex-1 truncate font-semibold text-[var(--foreground)]">
                         {formatStart(candidate.startTime)}
@@ -1181,7 +1223,16 @@ export default function EventDetailPage() {
               </h2>
               <ul className="mt-4 grid gap-3 text-sm text-[var(--muted)] md:grid-cols-2">
                 {event.placeCandidates.map((candidate) => (
-                  <li key={candidate.id} className="overflow-hidden rounded-2xl bg-white p-4 shadow-sm">
+                  <li key={candidate.id} className="relative overflow-hidden rounded-2xl bg-white p-4 shadow-sm">
+                    {canDeleteCandidate(candidate) && (
+                      <button
+                        onClick={() => handleDeletePlaceCandidate(candidate.id)}
+                        className="absolute left-2 top-2 grid h-5 w-5 place-items-center rounded-full bg-gray-100 text-gray-400 hover:bg-rose-100 hover:text-rose-500"
+                        aria-label="候補を削除"
+                      >
+                        <span className="material-symbols-rounded text-xs">close</span>
+                      </button>
+                    )}
                     <div className="flex min-w-0 items-center gap-3">
                       <button
                         onClick={() => setSelectedPlaceDetail(candidate)}
