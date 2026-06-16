@@ -1126,7 +1126,7 @@ export default function EventDetailPage() {
             )}
             {needsTimeCandidates && (
               <div>
-              <h2 className="flex items-center gap-2 text-lg font-semibold">
+              <h2 className="flex w-full items-center gap-2 text-lg font-semibold">
                 日程候補
                 <button
                   onClick={openTimeProposalOverlay}
@@ -1140,6 +1140,7 @@ export default function EventDetailPage() {
                   <span className="material-symbols-rounded text-sm">auto_awesome</span>
                   AI推測
                 </span>
+                <span className="ml-auto text-xs tracking-[0.2em] text-[var(--muted)]">最大5件</span>
               </h2>
               <ul className="mt-4 grid gap-3 text-sm text-[var(--muted)] md:grid-cols-2">
                 {event.timeCandidates.map((candidate) => (
@@ -1203,8 +1204,8 @@ export default function EventDetailPage() {
 
             {needsPlaceCandidates && (
               <div>
-              <h2 className="flex items-center gap-2 text-lg font-semibold">
-                場所
+              <h2 className="flex w-full items-center gap-2 text-lg font-semibold">
+                場所候補
                 <button
                   onClick={openPlaceProposalOverlay}
                   disabled={candidateActionsDisabled || !canAccessParticipantActions}
@@ -1217,6 +1218,7 @@ export default function EventDetailPage() {
                   <span className="material-symbols-rounded text-sm">auto_awesome</span>
                   AI推測
                 </span>
+                <span className="ml-auto text-xs tracking-[0.2em] text-[var(--muted)]">最大5件</span>
               </h2>
               <ul className="mt-4 grid gap-3 text-sm text-[var(--muted)] md:grid-cols-2">
                 {event.placeCandidates.map((candidate) => (
@@ -1380,29 +1382,18 @@ export default function EventDetailPage() {
               <div className="mt-4">
                 <p className="mb-2 text-xs font-semibold text-[var(--muted)]">候補日程</p>
                 <ul className="space-y-2">
-                  {dateSuggestions.map((dateStr) => {
-                    const date = new Date(dateStr);
-                    const weekday = ["日", "月", "火", "水", "木", "金", "土"][date.getDay()];
-                    const month = date.getMonth() + 1;
-                    const day = date.getDate();
-                    return (
-                      <li key={dateStr}>
-                        <button
-                          onClick={() => handleTimeProposal(dateStr)}
-                          className="flex w-full items-center gap-3 rounded-2xl bg-white p-4 text-left shadow-sm hover:bg-orange-50"
-                        >
-                          <div className="flex h-10 w-10 shrink-0 flex-col items-center justify-center rounded-xl bg-orange-50">
-                            <span className="text-[9px] font-semibold text-[var(--accent)]">{month}月</span>
-                            <span className="text-base font-bold leading-none text-[var(--accent)]">{day}</span>
-                          </div>
-                          <div className="min-w-0">
-                            <p className="font-semibold text-[var(--foreground)]">{weekday}曜日</p>
-                            <p className="text-xs text-[var(--muted)]">18:00〜</p>
-                          </div>
-                        </button>
-                      </li>
-                    );
-                  })}
+                  {dateSuggestions.map((dateStr) => (
+                    <li key={dateStr}>
+                      <button
+                        onClick={() => handleTimeProposal(dateStr)}
+                        className="flex w-full items-center gap-3 rounded-2xl bg-white px-4 py-3 text-left shadow-sm hover:bg-orange-50"
+                      >
+                        <p className="min-w-0 flex-1 truncate font-semibold text-[var(--foreground)]">
+                          {formatStart(dateStr)}
+                        </p>
+                      </button>
+                    </li>
+                  ))}
                 </ul>
               </div>
             )}
