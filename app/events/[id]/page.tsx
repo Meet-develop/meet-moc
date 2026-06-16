@@ -456,7 +456,7 @@ export default function EventDetailPage() {
   const fetchPlaceSuggestions = async (category = "") => {
     if (!event) return;
     setIsSuggestionsLoading(true);
-    const baseQuery = event.area ?? event.purpose ?? "東京";
+    const baseQuery = [event.area, event.purpose].filter(Boolean).join(" ") || "東京";
     const query = [baseQuery, category].filter(Boolean).join(" ");
     const response = await fetch(
       `/api/places/search?query=${encodeURIComponent(query)}&limit=5`
@@ -1411,29 +1411,22 @@ export default function EventDetailPage() {
               ) : suggestedPlaces.length > 0 ? (
                 <ul className="space-y-2 text-sm">
                   {suggestedPlaces.map((place) => (
-                    <li
-                      key={place.placeId}
-                      className="flex flex-col gap-2 rounded-2xl bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0 flex items-center gap-2">
+                    <li key={place.placeId}>
+                      <button
+                        onClick={() => handlePlaceProposal(place)}
+                        className="flex w-full items-center gap-2 rounded-2xl bg-white px-3 py-2 text-left shadow-sm hover:bg-orange-50"
+                      >
                         <Image
                           src={place.photoUrl ?? "/file.svg"}
                           alt={`${place.name} の写真`}
                           width={40}
                           height={40}
-                          className="h-10 w-10 rounded-xl object-cover"
+                          className="h-10 w-10 shrink-0 rounded-xl object-cover"
                         />
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-[var(--foreground)]">{place.name}</p>
                           <p className="truncate text-xs text-[var(--muted)]">{place.address}</p>
                         </div>
-                      </div>
-                      <button
-                        onClick={() => handlePlaceProposal(place)}
-                        className="flex w-full items-center justify-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-[var(--accent)] sm:w-auto"
-                      >
-                        <span className="material-symbols-rounded">add</span>
-                        追加
                       </button>
                     </li>
                   ))}
@@ -1469,29 +1462,22 @@ export default function EventDetailPage() {
               {placeResults.length > 0 && (
                 <ul className="max-h-48 space-y-2 overflow-y-auto pr-1 text-sm">
                   {placeResults.map((place) => (
-                    <li
-                      key={place.placeId}
-                      className="flex flex-col gap-2 rounded-2xl bg-white px-3 py-2 shadow-sm sm:flex-row sm:items-center sm:justify-between"
-                    >
-                      <div className="min-w-0 flex items-center gap-2">
+                    <li key={place.placeId}>
+                      <button
+                        onClick={() => handlePlaceProposal(place)}
+                        className="flex w-full items-center gap-2 rounded-2xl bg-white px-3 py-2 text-left shadow-sm hover:bg-orange-50"
+                      >
                         <Image
                           src={place.photoUrl ?? "/file.svg"}
                           alt={`${place.name} の写真`}
                           width={40}
                           height={40}
-                          className="h-10 w-10 rounded-xl object-cover"
+                          className="h-10 w-10 shrink-0 rounded-xl object-cover"
                         />
                         <div className="min-w-0">
                           <p className="truncate text-sm font-semibold text-[var(--foreground)]">{place.name}</p>
                           <p className="truncate text-xs text-[var(--muted)]">{place.address}</p>
                         </div>
-                      </div>
-                      <button
-                        onClick={() => handlePlaceProposal(place)}
-                        className="flex w-full items-center justify-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-[var(--accent)] sm:w-auto"
-                      >
-                        <span className="material-symbols-rounded">add</span>
-                        追加
                       </button>
                     </li>
                   ))}
