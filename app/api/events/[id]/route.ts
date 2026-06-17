@@ -163,8 +163,8 @@ export async function GET(
         myAvailability: myVote?.isAvailable ?? null,
       };
     })
-    .sort((a: any, b: any) => b.score - a.score)
-    .slice(0, 3);
+    .sort((a: any, b: any) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
+    .slice(0, 5);
 
   const placeCandidates = (
     await Promise.all(

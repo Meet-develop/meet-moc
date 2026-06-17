@@ -209,7 +209,7 @@ const fetchPlacesWithNewApi = async (
   }
 
   const payload = (await response.json()) as GooglePlaceNewSearchResponse;
-  return mapPlacesNew(payload.places ?? [], apiKey).slice(0, 6);
+  return mapPlacesNew(payload.places ?? [], apiKey).slice(0, 10);
 };
 
 const fetchPlacesWithLegacyApi = async (
@@ -229,7 +229,7 @@ const fetchPlacesWithLegacyApi = async (
     results?: GooglePlaceSearchItem[];
   };
 
-  return mapPlaces(payload.results ?? []).slice(0, 6);
+  return mapPlaces(payload.results ?? []).slice(0, 10);
 };
 
 export async function getPlacesForQuery(
