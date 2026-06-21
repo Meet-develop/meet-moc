@@ -820,7 +820,7 @@ export default function EventDetailPage() {
       inviteLink ??
       createdInviteLink ??
       `${window.location.origin}/events/${eventId}${userId ? `?ref=${encodeURIComponent(userId)}` : ""}`;
-    const text = `このイベントに一緒に参加しませんか？ ${event.purpose} ${urlToShare}`;
+    const text = `このイベントに一緒に参加しませんか？ ${urlToShare}`;
 
     try {
       if ((navigator as any).share) {
@@ -828,7 +828,7 @@ export default function EventDetailPage() {
         setInviteMessage("共有しました。");
         return;
       }
-    } catch (error) {
+    } catch {
       // navigator.share failed, show fallback UI
     }
 
@@ -884,17 +884,6 @@ export default function EventDetailPage() {
       setCalendarMessage("カレンダーの登録に失敗しました。時間をおいて再度お試しください。");
     } finally {
       setIsCalendarDownloading(false);
-    }
-  };
-
-  const handleCopyInviteLink = async () => {
-    if (!inviteLink) return;
-
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-      setInviteMessage("招待リンクをコピーしました。");
-    } catch {
-      setInviteMessage("コピーに失敗しました。リンクを長押しして共有してください。");
     }
   };
 
@@ -1510,39 +1499,6 @@ export default function EventDetailPage() {
                 : "選択したフレンドにイベント招待を送信します。"}
             </p>
 
-            <div className="mt-3 rounded-2xl bg-white p-3 shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-[var(--foreground)]">リンクで招待</p>
-                <button
-                  onClick={handleCreateInviteLink}
-                  disabled={
-                    event.visibility === "private" && userId !== event.owner.userId
-                  }
-                  className="flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="material-symbols-rounded text-sm">link</span>
-                  作成する
-                </button>
-              </div>
-              {inviteLink && (
-                <div className="mt-2 flex items-center gap-2">
-                  <p className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]">{inviteLink}</p>
-                  <button
-                    onClick={handleCopyInviteLink}
-                    className="grid h-8 w-8 place-items-center rounded-full bg-orange-100 text-[var(--accent)]"
-                    aria-label="招待リンクをコピー"
-                  >
-                    <span className="material-symbols-rounded text-sm">content_copy</span>
-                  </button>
-                </div>
-              )}
-              {event.visibility === "private" && userId !== event.owner.userId && (
-                <p className="mt-2 text-[11px] text-[var(--muted)]">
-                  プライベートイベントのリンク招待はオーナーのみ作成できます。
-                </p>
-              )}
-            </div>
-
             {inviteMessage && <p className="mt-3 text-xs text-[var(--accent)]">{inviteMessage}</p>}
 
             {friends.length === 0 ? (
@@ -1636,7 +1592,7 @@ export default function EventDetailPage() {
                 <button
                   onClick={() => {
                     const url = inviteLink ?? `${window.location.origin}/events/${eventId}?ref=${userId ?? ""}`;
-                    const text = `このイベントに一緒に参加しませんか？ ${event.purpose} ${url}`;
+                    const text = `このイベントに一緒に参加しませんか？ ${url}`;
                     window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`);
                     console.log("[DEBUG] LINE share clicked, url:", url);
                   }}
@@ -1648,7 +1604,7 @@ export default function EventDetailPage() {
                 <button
                   onClick={() => {
                     const url = inviteLink ?? `${window.location.origin}/events/${eventId}?ref=${userId ?? ""}`;
-                    const text = `このイベントに一緒に参加しませんか？ ${event.purpose}`;
+                    const text = `このイベントに一緒に参加しませんか？`;
                     window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`);
                     console.log("[DEBUG] X (Twitter) share clicked, url:", url);
                   }}
