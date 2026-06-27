@@ -102,6 +102,5 @@ jobs:
             - 「---」による区切りは使用しない
             - レビュー内容を重要度が高い順に並び替える
 
-          claude_args: |
-            --max-turns 3
-            --model ${{ steps.model.outputs.model }}
+          model: ${{ steps.model.outputs.model }}
+          max_turns: "3"
