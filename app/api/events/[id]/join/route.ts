@@ -7,46 +7,7 @@ import {
   shouldAutoApprove,
 } from "@/lib/event-approval";
 
-const needsOwnerApprovalByDeadline = (event: {
-  scheduleMode: "fixed" | "candidate";
-  status: "open" | "confirmed" | "completed" | "cancelled";
-  fixedStartTime: Date | null;
-  timeCandidates: Array<{ startTime: Date }>;
-}) => {
-  const now = Date.now();
 
-  if (event.status === "cancelled") {
-    return true;
-  }
-
-  if (event.scheduleMode === "fixed") {
-    if (!event.fixedStartTime) {
-      return false;
-    }
-    const deadline = new Date(event.fixedStartTime);
-    deadline.setDate(deadline.getDate() - 1);
-    return now > deadline.getTime();
-  }
-
-  if (event.status !== "open") {
-    return true;
-  }
-
-  const candidateStarts = event.timeCandidates
-    .map((candidate) => candidate.startTime.getTime())
-    .filter((timestamp) => Number.isFinite(timestamp));
-
-  const firstStart =
-    event.fixedStartTime != null
-      ? event.fixedStartTime.getTime()
-      : candidateStarts.length > 0
-        ? Math.min(...candidateStarts)
-        : now + 7 * 24 * 60 * 60 * 1000;
-
-  const deadline = new Date(firstStart);
-  deadline.setDate(deadline.getDate() - 1);
-  return now > deadline.getTime();
-};
 
 export async function POST(
   request: Request,
