@@ -67,14 +67,7 @@ type EventUpdateComparable = {
   } | null;
 };
 
-type SuggestedCandidate = {
-  id: string;
-  startTime: string;
-  endTime: string;
-  selected: boolean;
-};
-
-type ManualCandidate = {
+type TimeCandidate = {
   id: string;
   startTime: string;
   endTime: string;
@@ -134,14 +127,14 @@ const plusButtonClass =
 const JST_OFFSET_MS = 9 * 60 * 60 * 1000;
 const WEEKDAY_LABELS = ["日", "月", "火", "水", "木", "金", "土"] as const;
 
-const formatCandidateTime = (isoString: string) => {
+const formatCandidateStart = (isoString: string) => {
   const jst = new Date(new Date(isoString).getTime() + JST_OFFSET_MS);
   const month = jst.getUTCMonth() + 1;
   const day = jst.getUTCDate();
   const weekday = WEEKDAY_LABELS[jst.getUTCDay()];
   const h = String(jst.getUTCHours()).padStart(2, "0");
   const m = String(jst.getUTCMinutes()).padStart(2, "0");
-  return `${month}月${day}日 (${weekday}) ${h}:${m}`;
+  return `${month}月${day}日 (${weekday}) ${h}:${m}〜`;
 };
 
 const generateId = () => Math.random().toString(36).slice(2);
@@ -254,9 +247,9 @@ function EventCreatePageContent() {
   const [timeSetting, setTimeSetting] = useState<"auto" | "candidates" | "manual">("auto");
   const [placeSetting, setPlaceSetting] = useState<"auto" | "manual">("auto");
   const [fixedStart, setFixedStart] = useState("");
-  const [suggestedCandidates, setSuggestedCandidates] = useState<SuggestedCandidate[]>([]);
+  const [activeCandidates, setActiveCandidates] = useState<TimeCandidate[]>([]);
+  const [suggestionPool, setSuggestionPool] = useState<TimeCandidate[]>([]);
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
-  const [manualTimeCandidates, setManualTimeCandidates] = useState<ManualCandidate[]>([]);
   const [manualDateInput, setManualDateInput] = useState("");
   const [showManualDateInput, setShowManualDateInput] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
@@ -410,7 +403,8 @@ function EventCreatePageContent() {
 
   useEffect(() => {
     if (timeSetting !== "candidates" || !userId) {
-      setSuggestedCandidates([]);
+      setActiveCandidates([]);
+      setSuggestionPool([]);
       return;
     }
 
@@ -425,15 +419,14 @@ function EventCreatePageContent() {
       if (!active) return;
       if (response.ok) {
         const data = (await response.json()) as {
-          candidates: { startTime: string; endTime: string }[];
+          defaults: { startTime: string; endTime: string }[];
+          suggestions: { startTime: string; endTime: string }[];
         };
-        setSuggestedCandidates(
-          data.candidates.map((c) => ({
-            id: generateId(),
-            startTime: c.startTime,
-            endTime: c.endTime,
-            selected: true,
-          }))
+        setActiveCandidates(
+          data.defaults.map((c) => ({ id: generateId(), startTime: c.startTime, endTime: c.endTime }))
+        );
+        setSuggestionPool(
+          data.suggestions.map((c) => ({ id: generateId(), startTime: c.startTime, endTime: c.endTime }))
         );
       }
       setIsSuggestionsLoading(false);
@@ -488,13 +481,8 @@ function EventCreatePageContent() {
   }, [autoTitle, eventTitleInput, isTitleCustomized]);
 
   const allUserTimeCandidates = useMemo(
-    () => [
-      ...suggestedCandidates
-        .filter((c) => c.selected)
-        .map((c) => ({ startTime: c.startTime, endTime: c.endTime })),
-      ...manualTimeCandidates.map((c) => ({ startTime: c.startTime, endTime: c.endTime })),
-    ],
-    [suggestedCandidates, manualTimeCandidates]
+    () => activeCandidates.map((c) => ({ startTime: c.startTime, endTime: c.endTime })),
+    [activeCandidates]
   );
 
   const isTimeManualValid =
@@ -1323,68 +1311,29 @@ function EventCreatePageContent() {
                 </div>
 
                 {timeSetting === "candidates" && (
-                  <div className="mt-4">
-                    <p className="mb-2 text-xs font-semibold text-[var(--foreground)]">
-                      提案候補（プロフィールの空き日程から）
-                    </p>
-                    {isSuggestionsLoading ? (
-                      <p className="text-xs text-[var(--muted)]">候補を取得中...</p>
-                    ) : suggestedCandidates.length === 0 ? (
-                      <p className="text-xs text-[var(--muted)]">
-                        プロフィールに空き日程が設定されていません。下の手動追加から日程を入力してください。
-                      </p>
-                    ) : (
-                      <div className="space-y-2">
-                        {suggestedCandidates.map((candidate) => (
-                          <button
-                            key={candidate.id}
-                            onClick={() =>
-                              setSuggestedCandidates((prev) =>
-                                prev.map((c) =>
-                                  c.id === candidate.id ? { ...c, selected: !c.selected } : c
-                                )
-                              )
-                            }
-                            className={`flex w-full items-center gap-3 rounded-2xl px-4 py-3 text-left ${
-                              candidate.selected ? "bg-orange-50 shadow-md" : "bg-white shadow-sm"
-                            }`}
-                          >
-                            <span
-                              className={`grid h-5 w-5 flex-shrink-0 place-items-center rounded-full border ${
-                                candidate.selected
-                                  ? "border-[var(--accent)] bg-[var(--accent)] text-white"
-                                  : "border-gray-300 bg-white"
-                              }`}
-                            >
-                              {candidate.selected && (
-                                <span className="material-symbols-rounded text-xs">check</span>
-                              )}
-                            </span>
-                            <span className="text-sm">
-                              {formatCandidateTime(candidate.startTime)}〜{formatCandidateTime(candidate.endTime).split(" ").pop()}
-                            </span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {manualTimeCandidates.length > 0 && (
-                      <div className="mt-3">
-                        <p className="mb-2 text-xs font-semibold text-[var(--foreground)]">手動追加した候補</p>
+                  <div className="mt-4 space-y-4">
+                    {/* 日程候補 */}
+                    <div>
+                      <p className="mb-2 text-xs font-semibold text-[var(--foreground)]">日程候補</p>
+                      {isSuggestionsLoading ? (
+                        <p className="text-xs text-[var(--muted)]">候補を取得中...</p>
+                      ) : activeCandidates.length === 0 ? (
+                        <p className="text-xs text-[var(--muted)]">
+                          候補がありません。下の「提案候補」から選択するか、日程を手動追加してください。
+                        </p>
+                      ) : (
                         <div className="space-y-2">
-                          {manualTimeCandidates.map((candidate) => (
+                          {activeCandidates.map((candidate) => (
                             <div
                               key={candidate.id}
                               className="flex items-center justify-between rounded-2xl bg-orange-50 px-4 py-3 shadow-sm"
                             >
-                              <span className="text-sm">{formatCandidateTime(candidate.startTime)}</span>
+                              <span className="text-sm">{formatCandidateStart(candidate.startTime)}</span>
                               <button
                                 onClick={() =>
-                                  setManualTimeCandidates((prev) =>
-                                    prev.filter((c) => c.id !== candidate.id)
-                                  )
+                                  setActiveCandidates((prev) => prev.filter((c) => c.id !== candidate.id))
                                 }
-                                className="grid h-6 w-6 place-items-center rounded-full bg-white text-[var(--muted)] shadow-sm"
+                                className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-full bg-white text-[var(--muted)] shadow-sm"
                                 aria-label="削除"
                               >
                                 <span className="material-symbols-rounded text-sm">close</span>
@@ -1392,10 +1341,38 @@ function EventCreatePageContent() {
                             </div>
                           ))}
                         </div>
+                      )}
+                      {activeCandidates.length === 0 && !isSuggestionsLoading && (
+                        <p className="mt-1 text-xs text-rose-500">
+                          候補を1件以上追加してください。
+                        </p>
+                      )}
+                    </div>
+
+                    {/* 提案候補 */}
+                    {!isSuggestionsLoading && suggestionPool.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-xs font-semibold text-[var(--foreground)]">提案候補</p>
+                        <div className="space-y-2">
+                          {suggestionPool.map((candidate) => (
+                            <button
+                              key={candidate.id}
+                              onClick={() => {
+                                setSuggestionPool((prev) => prev.filter((c) => c.id !== candidate.id));
+                                setActiveCandidates((prev) => [...prev, candidate]);
+                              }}
+                              className="flex w-full items-center justify-between rounded-2xl bg-white px-4 py-3 text-left shadow-sm"
+                            >
+                              <span className="text-sm">{formatCandidateStart(candidate.startTime)}</span>
+                              <span className="material-symbols-rounded text-sm text-[var(--muted)]">add</span>
+                            </button>
+                          ))}
+                        </div>
                       </div>
                     )}
 
-                    <div className="mt-3">
+                    {/* 手動追加 */}
+                    <div>
                       {showManualDateInput ? (
                         <div className="flex flex-col gap-2">
                           <input
@@ -1410,13 +1387,9 @@ function EventCreatePageContent() {
                                 if (!manualDateInput) return;
                                 const start = new Date(manualDateInput);
                                 const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
-                                setManualTimeCandidates((prev) => [
+                                setActiveCandidates((prev) => [
                                   ...prev,
-                                  {
-                                    id: generateId(),
-                                    startTime: start.toISOString(),
-                                    endTime: end.toISOString(),
-                                  },
+                                  { id: generateId(), startTime: start.toISOString(), endTime: end.toISOString() },
                                 ]);
                                 setManualDateInput("");
                                 setShowManualDateInput(false);
@@ -1427,10 +1400,7 @@ function EventCreatePageContent() {
                               追加
                             </button>
                             <button
-                              onClick={() => {
-                                setManualDateInput("");
-                                setShowManualDateInput(false);
-                              }}
+                              onClick={() => { setManualDateInput(""); setShowManualDateInput(false); }}
                               className="flex-1 rounded-full bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)] shadow-sm"
                             >
                               キャンセル
@@ -1447,12 +1417,6 @@ function EventCreatePageContent() {
                         </button>
                       )}
                     </div>
-
-                    {allUserTimeCandidates.length === 0 && (
-                      <p className="mt-2 text-xs text-rose-500">
-                        候補を1件以上選択または追加してください。
-                      </p>
-                    )}
                   </div>
                 )}
 
