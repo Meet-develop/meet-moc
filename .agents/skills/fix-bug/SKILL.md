@@ -1,7 +1,7 @@
 ---
 name: fix-bug
-description: バグを修正する。Issue作成→ブランチ作成→修正→PRまでの一連のワークフローを実行する。
-argument-hint: --title "バグ概要" --description "再現手順と期待動作"
+description: バグを修正する。Issue作成→ブランチ作成→修正→PRまでの一連のワークフローを実行する。バグ報告・不具合修正・エラー解消の依頼で積極的に呼び出すこと。
+argument-hint: --title "バグ概要"
 allowed-tools:
   - Bash
   - Read
@@ -11,111 +11,54 @@ allowed-tools:
 
 # Skill: fix-bug
 
-バグ修正ワークフロー。Issue作成からPR作成まで一貫して実行する。
-
-## 対応エージェント
-Claude Code, CODEX, その他CLIエージェント（`gh` CLI と `git` が使えれば動作する）
-
-## ワークフロー概要
-
-```
-1. Issueを作成（バグ報告テンプレート）
-2. developからhotfixブランチを作成
-3. バグを修正
-4. コミット
-5. PR作成（developへ）
-```
+バグ修正の完全ワークフロー。Issue 作成から PR 作成まで一貫して実行する。
+Issue・PR の本文は `.github/` のテンプレートを参照すること。インラインで書かないこと。
 
 ## 前提条件
+
 - `gh` CLI がインストール・認証済みであること
 - ベースブランチ: `develop`
 - リポジトリ: `Meet-develop/meet-moc`
 
-## 実行手順
+## Phase 1 — Issue 作成
 
-### Phase 1 — Issue作成
+`create-issue` スキルを呼び出し、`--type fix` を指定して Issue を作成する。
+テンプレート: `.github/ISSUE_TEMPLATE/bug_report.md`
 
-バグ報告のIssueを作成する。
+Issue 番号（`ISSUE_NUMBER`）を取得して次の Phase で使用する。
 
-```bash
-gh issue create \
-  --repo Meet-develop/meet-moc \
-  --title "[BUG] <バグの概要>" \
-  --label "bug" \
-  --body "$(cat <<'EOF'
-## バグの概要
-（何が起きているか）
-
-## 再現手順
-1. ...
-2. ...
-3. ...
-
-## 期待される動作
-（本来どうあるべきか）
-
-## 実際の動作
-（実際に何が起きているか）
-
-## 環境
-- OS: 
-- ブラウザ: 
-- バージョン: 
-
-## 補足
-（スクリーンショット、ログなど）
-EOF
-)"
-```
-
-Issue番号（`ISSUE_NUMBER`）を取得して次のPhaseで使用する。
-
-### Phase 2 — ブランチ作成
+## Phase 2 — ブランチ作成
 
 ```bash
 git fetch origin develop
-git checkout develop
-git pull origin develop
-git checkout -b gh-${ISSUE_NUMBER}-fix-<bug-slug>
+git checkout -b gh-${ISSUE_NUMBER}-fix-<bug-slug> origin/develop
 ```
 
-`<bug-slug>` はケバブケースでバグを短く表現したもの（例: `fix-vote-null-error`）。
+`<bug-slug>` はケバブケースでバグを短く表現（例: `fix-vote-null-error`）。
 
-### Phase 3 — バグ修正
+## Phase 3 — バグ修正
 
-根本原因を特定してから修正する。
-- ログ・エラーメッセージを読む
-- 再現ケースを把握する
-- 最小限の変更で修正する（副作用を避ける）
+根本原因を特定してから最小限の変更で修正する。
 
-### Phase 4 — コミット
+```bash
+# TypeScript 型エラー確認
+npx tsc --noEmit
+
+# Prisma スキーマ確認
+npx prisma validate
+```
+
+## Phase 4 — コミット
 
 ```bash
 git add <変更ファイル>
-git commit -m "fix: <バグの修正内容>
-
-- <修正詳細>
+git commit -m "fix: <修正内容の簡潔な説明>
 
 Fixes #${ISSUE_NUMBER}"
 ```
 
-### Phase 5 — PR作成
+## Phase 5 — PR 作成
 
-`.claude/skills/create-pr/SKILL.md` の手順に従ってPRを作成する。
+`create-pr` スキルを呼び出す。テンプレート: `.github/PULL_REQUEST_TEMPLATE.md`
 - base: `develop`
 - `Fixes #${ISSUE_NUMBER}` を本文に含める
-
-## プロジェクト固有メモ
-
-### よくあるバグの調査起点
-```bash
-# Prismaのクエリエラー確認
-# app/api/ 以下のAPIルートを確認
-# components/ 以下のコンポーネントを確認
-
-# TypeScriptの型エラー確認
-npx tsc --noEmit
-
-# Prismaスキーマの整合性確認
-npx prisma validate
-```
