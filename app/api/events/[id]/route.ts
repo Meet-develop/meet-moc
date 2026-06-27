@@ -156,7 +156,7 @@ export async function GET(
   const timeCandidates = event.timeCandidates
     .map((candidate: any) => {
       const weightedScore = candidate.votes.reduce(
-        (acc: number, vote: any) => acc + (availabilityWeight[vote.availability] ?? 0),
+        (acc: number, vote: any) => acc + (availabilityWeight[vote.availability as TimeAvailability] ?? 0),
         0
       );
       const availableVotes = candidate.votes.filter(
