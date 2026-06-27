@@ -1,102 +1,151 @@
 ---
 name: pr-review
-description: PRを6つの専門サブエージェントで並列レビューする。pr-review-toolkit の全エージェントを同時起動し、Critical/Important/Suggestionの3段階で結果を集約する。PR番号を省略すると現在ブランチのオープンPRを自動取得する。コードレビュー依頼・PRチェック・マージ前確認などで積極的に呼び出すこと。
-argument-hint: "[PR番号] [--comment]"
+description: PRを専門エージェントで包括的にレビューする。コード品質・テスト・エラーハンドリング・型設計・コメント・簡潔化・ビルド検証の観点でレビューを実施する。PR作成前・マージ前確認・コードレビュー依頼で積極的に呼び出すこと。レビュー観点を絞る場合は引数で指定できる（例: /pr-review tests errors build）。
+argument-hint: "[build] [code] [tests] [errors] [types] [comments] [simplify] [all] [parallel]"
 allowed-tools:
   - Bash
+  - Glob
+  - Grep
+  - Read
   - Agent
 ---
 
-# Skill: pr-review
+# Comprehensive PR Review
 
-pr-review-toolkit の6専門エージェントを**並列で**起動し、包括的なPRレビューを実施する。
-各エージェントは独立して `gh pr diff` / `gh pr view` でPR情報を取得するため、並列実行しても情報の欠落は生じない。
+meet-moc 向けの包括的 PR レビュー。複数の専門エージェントで PR を精査し、マージ前の品質を保証する。
 
-## Step 1 — PR番号を解決する
+**レビュー引数:** "$ARGUMENTS"
 
-引数に PR 番号が指定されている場合はそれを使用する。指定がない場合:
+---
+
+## Step 1 — レビュー対象を特定する
 
 ```bash
-gh pr view --json number,title,baseRefName,url
+# 変更ファイル一覧を取得
+git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only origin/develop...HEAD
+
+# PR が存在する場合は PR 情報も取得
+gh pr view --json number,title,baseRefName,additions,deletions,changedFiles 2>/dev/null || true
 ```
 
-取得した値を変数に格納する: `PR_NUMBER`, `PR_TITLE`, `BASE_BRANCH`, `PR_URL`
+引数を解析する:
+- 引数なし or `all` → 全観点を実行
+- `parallel` → 全エージェントを並列起動（デフォルトは逐次）
+- 個別指定（例: `tests errors`）→ 指定された観点のみ
 
-## Step 2 — 6つのサブエージェントを**単一メッセージ・並列で**起動する
+---
 
-**CRITICAL: 以下の6エージェントは必ず同時に（単一のレスポンスで）起動すること。順番に起動してはいけない。**
+## Step 2 — 適用する観点を決定する
 
-各エージェントのプロンプトには取得した `PR_NUMBER` を埋め込む。各エージェントは独立して情報を取得する。
+| 観点 | 引数キー | 対応エージェント | 適用条件 |
+|---|---|---|---|
+| **ビルド検証** | `build` | ─（直接実行） | 常に適用（最優先） |
+| **コード品質** | `code` | `pr-review-toolkit:code-reviewer` | 常に適用 |
+| **テスト** | `tests` | `pr-review-toolkit:pr-test-analyzer` | テストファイルまたはロジック変更時 |
+| **エラーハンドリング** | `errors` | `pr-review-toolkit:silent-failure-hunter` | 常に適用 |
+| **型設計** | `types` | `pr-review-toolkit:type-design-analyzer` | TypeScript 型が追加・変更された場合 |
+| **コメント** | `comments` | `pr-review-toolkit:comment-analyzer` | コメント・ドキュメントが変更された場合 |
+| **簡潔化** | `simplify` | `pr-review-toolkit:code-simplifier` | レビュー通過後のポリッシュ用 |
 
-### Agent 1: pr-review-toolkit:code-reviewer
-```
-PR #${PR_NUMBER} のコードをレビューしてください。
-`gh pr diff ${PR_NUMBER}` でdiffを取得し、`gh pr view ${PR_NUMBER} --json title,body,baseRefName` でPR詳細を確認すること。
-CLAUDE.md のガイドラインに従い、バグ・スタイル違反・品質問題を報告してください。信頼度80以上の問題のみ報告すること。
-```
+変更ファイルのパターンで自動判定:
+- `**/*.test.ts` `**/*.spec.ts` → `tests` を適用
+- `**/*.ts` `**/*.tsx` で型定義あり → `types` を適用
+- `try` / `catch` / `error` の変更 → `errors` を適用
 
-### Agent 2: pr-review-toolkit:pr-test-analyzer
-```
-PR #${PR_NUMBER} のテストカバレッジをレビューしてください。
-`gh pr diff ${PR_NUMBER}` でdiffを取得すること。
-新規追加ロジック・分岐・エラーパスに対するテストの網羅性を分析し、Critical Gap（評価8-10）を優先して報告してください。
-```
+---
 
-### Agent 3: pr-review-toolkit:silent-failure-hunter
-```
-PR #${PR_NUMBER} のエラーハンドリングをレビューしてください。
-`gh pr diff ${PR_NUMBER}` でdiffを取得すること。
-サイレントエラー・不適切なcatchブロック・不正なフォールバック動作を CRITICAL/HIGH/MEDIUM で分類して報告してください。
-```
+## Step 3 — ビルド検証（`build` 観点）
 
-### Agent 4: pr-review-toolkit:type-design-analyzer
-```
-PR #${PR_NUMBER} で追加・変更された TypeScript の型をレビューしてください。
-`gh pr diff ${PR_NUMBER}` でdiffを取得すること。
-型の変更がない場合は「型の変更なし」と報告すること。
-encapsulation/invariant-expression/usefulness/enforcement の4軸で評価してください。
-```
+**必ず最初に実行する。ビルドが失敗した場合はエージェントレビューを中断して報告すること。**
 
-### Agent 5: pr-review-toolkit:comment-analyzer
-```
-PR #${PR_NUMBER} のコードコメントをレビューしてください。
-`gh pr diff ${PR_NUMBER}` でdiffを取得すること。
-追加・変更されたコメントの正確性・保守性・技術的負債リスクを分析し、
-Critical Issue / Improvement Opportunity / Recommended Removal に分類して報告してください。
-```
+```bash
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
 
-### Agent 6: pr-review-toolkit:code-simplifier
-```
-PR #${PR_NUMBER} のコードの簡潔化・改善機会を特定してください。
-`gh pr diff ${PR_NUMBER}` でdiffを取得すること。
-機能を変更せず可読性・保守性を向上できる箇所を特定し、具体的な改善案を提示してください。コードを変更しないこと。
+echo "=== TypeScript 型チェック ==="
+npx tsc --noEmit 2>&1
+
+echo "=== ESLint ==="
+npm run lint 2>&1
+
+echo "=== Next.js ビルド ==="
+# 注意: next build は prisma generate を含む（package.json: "build": "prisma generate && next build"）
+# DATABASE_URL が必要な場合は .env.local を参照
+npm run build 2>&1
 ```
 
-## Step 3 — 全エージェントの結果を集約する
+ビルド結果を報告:
+- ✅ 成功 → エージェントレビューに進む
+- ❌ TypeScript エラー → 型エラーをリストアップして **Critical** として報告
+- ❌ Lint エラー → **Important** として報告
+- ❌ Build エラー → ビルドエラーをリストアップして **Critical** として報告、**エージェントレビューを中断**
 
-すべてのエージェントが完了したら、以下のフォーマットで統合レポートを生成する:
+---
+
+## Step 4 — エージェントレビューを起動する
+
+### 逐次実行（デフォルト）
+
+`parallel` 引数がない場合は 1 エージェントずつ順番に実行する。各レポートを確認してから次に進む。
+
+適用する各エージェントに以下の情報を渡す:
+
+```
+PR の変更内容をレビューしてください。
+
+【対象変更の取得方法】
+git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only origin/develop...HEAD
+git diff HEAD~1 HEAD 2>/dev/null || git diff origin/develop...HEAD
+
+【プロジェクト情報】
+- リポジトリ: Meet-develop/meet-moc
+- フレームワーク: Next.js (App Router) + Prisma + PostgreSQL + TypeScript
+- ガイドライン: リポジトリルートの AGENTS.md を参照
+- ブランチ: develop がベースブランチ
+
+【注意事項】
+- 信頼度 80 以上の問題のみ報告すること
+- ファイルパスと行番号を明示すること
+```
+
+### 並列実行（`parallel` 引数指定時）
+
+**CRITICAL: 全エージェントを単一のレスポンスで同時に起動すること。**
+
+適用する全エージェントに同じプロンプトを渡し、一括起動する。
+
+---
+
+## Step 5 — 結果を集約する
+
+全エージェントの完了後（逐次の場合は都度確認）、以下のフォーマットでサマリーを出力する:
 
 ```markdown
-# PR #${PR_NUMBER} レビューレポート
-**タイトル:** ${PR_TITLE}
-**URL:** ${PR_URL}
+# PR レビューサマリー
+
+## ビルド検証結果
+| チェック | 結果 |
+|---|---|
+| TypeScript 型チェック | ✅ / ❌ N件のエラー |
+| ESLint | ✅ / ❌ N件の警告/エラー |
+| Next.js ビルド | ✅ / ❌ ビルドエラー |
 
 ## Critical Issues（マージ前に必ず修正: N件）
 - **[エージェント名]** 説明 — `ファイル:行番号`
 
 ## Important Issues（修正を強く推奨: N件）
-- ...
+- **[エージェント名]** 説明 — `ファイル:行番号`
 
 ## Suggestions（任意改善: N件）
-- ...
+- **[エージェント名]** 説明 — `ファイル:行番号`
 
-## Strengths（良い実装: N件）
-- ...
+## Strengths（良い実装）
+- 優れている点
 
 ## エージェント別サマリー
-
 | エージェント | 発見数 | 最高重要度 |
 |---|---|---|
+| build | N件 | Critical/Important/✅ |
 | code-reviewer | N件 | Critical/Important/None |
 | pr-test-analyzer | N件 | Critical(8-10)/Important(5-7)/None |
 | silent-failure-hunter | N件 | CRITICAL/HIGH/MEDIUM/None |
@@ -105,23 +154,71 @@ PR #${PR_NUMBER} のコードの簡潔化・改善機会を特定してくださ
 | code-simplifier | N件 | Suggestion/None |
 
 ## 推奨アクション
-1. Critical Issues を修正する（マージブロッカー）
-2. Important Issues に対応する
-3. 修正後に再レビュー: `/pr-review ${PR_NUMBER}`
+1. ビルドエラーを修正する（最優先）
+2. Critical Issues を修正する（マージブロッカー）
+3. Important Issues に対応する
+4. Suggestions を検討する
+5. 修正後に再レビュー: `/pr-review`
 ```
 
-## Step 4 — PRコメントに投稿する（`--comment` フラグ指定時のみ）
-
-`--comment` 引数が指定された場合、または会話中にユーザーが明示的に投稿を要求した場合のみ実行する:
-
-```bash
-gh pr comment ${PR_NUMBER} --repo Meet-develop/meet-moc --body "..."
-```
+---
 
 ## 使用例
 
 ```
-/pr-review            # 現在ブランチのPRをレビュー
-/pr-review 65         # PR番号を指定
-/pr-review 65 --comment  # レビュー結果をPRコメントとして投稿
+# フルレビュー（デフォルト: 逐次、全観点）
+/pr-review
+
+# 全観点を並列実行（高速）
+/pr-review all parallel
+
+# ビルド検証のみ
+/pr-review build
+
+# テストとエラーハンドリングのみ
+/pr-review tests errors
+
+# ビルド検証 + コード品質（最小チェックセット）
+/pr-review build code
+
+# レビュー通過後の最終ポリッシュ
+/pr-review simplify
 ```
+
+---
+
+## ワークフロー統合
+
+**コミット前:**
+```
+1. コードを書く
+2. /pr-review build code errors
+3. Critical を修正してコミット
+```
+
+**PR 作成前:**
+```
+1. /pr-review all
+2. Critical・Important をすべて対処
+3. /create-pr で PR を作成
+```
+
+**PR フィードバック対応後:**
+```
+1. 指摘された変更を加える
+2. /pr-review <指摘に対応する観点>
+3. 解消を確認してプッシュ
+```
+
+---
+
+## エージェント別の役割
+
+| エージェント | 専門 | 重要度スケール |
+|---|---|---|
+| **code-reviewer** | AGENTS.md 準拠・バグ・コード品質 | Critical(90-100) / Important(80-89) |
+| **pr-test-analyzer** | テストカバレッジの網羅性 | Critical Gap(8-10) / Important Gap(5-7) |
+| **silent-failure-hunter** | サイレントエラー・catch ブロック | CRITICAL / HIGH / MEDIUM |
+| **type-design-analyzer** | TypeScript 型のカプセル化・不変条件 | 4軸スコア（encapsulation等） |
+| **comment-analyzer** | コメントの正確性・保守性 | Critical Issue / Improvement / Removal |
+| **code-simplifier** | 可読性・重複排除・簡潔化 | Suggestion |
