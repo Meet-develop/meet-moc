@@ -120,8 +120,15 @@ export function MobileBottomNav() {
 
     void loadProfile();
 
+    const handleProfileUpdate = () => {
+      void loadProfile();
+    };
+
+    window.addEventListener("profile-updated", handleProfileUpdate);
+
     return () => {
       active = false;
+      window.removeEventListener("profile-updated", handleProfileUpdate);
     };
   }, [userId]);
 
@@ -143,6 +150,7 @@ export function MobileBottomNav() {
           const active = item.match(pathname);
           const isCreateItem = item.href === "/events/new";
           const isDisabled = isCreateItem && userId != null && !canCreateEvent;
+
           const baseClass = item.emphasize
             ? active
               ? "-mt-5 rounded-2xl bg-[var(--accent)] px-3 py-2 text-white shadow-lg shadow-orange-300"

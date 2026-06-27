@@ -52,7 +52,7 @@ export function ProfileCompletionModal({ visible, profile, onClose }: Props) {
   if (profile.budgetMin == null && profile.budgetMax == null) missing.push("予算レンジ");
   if (!profile.ngFoods || profile.ngFoods.length === 0) missing.push("苦手な食べ物");
   if (!profile.favoriteAreas || profile.favoriteAreas.length === 0) missing.push("よく行くエリア");
-  if (!profile.favoritePlaces || profile.favoritePlaces.length === 0) missing.push("よく行くお店");
+  if (!profile.favoritePlaces || profile.favoritePlaces.length === 0) missing.push("好きなお店ジャンル");
   if (!hasAnyWeekdayAvailability(profile.availability)) missing.push("普段の空き時間（曜日/時間帯）");
 
   return (
