@@ -770,15 +770,15 @@ export default function EventDetailPage() {
     setShowInviteOverlay(false);
   };
 
-  const handleCreateInviteLink = async () => {
+  const handleCreateInviteLink = async (quiet = false) => {
     if (!event || !userId) return null;
 
     if (event.visibility === "private" && userId !== event.owner.userId) {
-      setInviteMessage("プライベートイベントではオーナーのみ招待リンクを作成できます。");
+      if (!quiet) setInviteMessage("プライベートイベントではオーナーのみ招待リンクを作成できます。");
       return null;
     }
 
-    setInviteMessage(null);
+    if (!quiet) setInviteMessage(null);
     try {
       const response = await fetch(`/api/events/${eventId}/invites`, {
         method: "POST",
@@ -787,14 +787,14 @@ export default function EventDetailPage() {
       });
 
       if (!response.ok) {
-        setInviteMessage("招待リンクの作成に失敗しました。");
+        if (!quiet) setInviteMessage("招待リンクの作成に失敗しました。");
         return null;
       }
 
       const data = await response.json();
       const token = data.token as string | undefined;
       if (!token) {
-        setInviteMessage("招待リンクの作成に失敗しました。");
+        if (!quiet) setInviteMessage("招待リンクの作成に失敗しました。");
         return null;
       }
 
@@ -802,10 +802,10 @@ export default function EventDetailPage() {
         token
       )}&ref=${encodeURIComponent(userId)}`;
       setInviteLink(url);
-      setInviteMessage("招待リンクを作成しました。");
+      if (!quiet) setInviteMessage("招待リンクを作成しました。");
       return url;
     } catch {
-      setInviteMessage("招待リンクの作成に失敗しました。");
+      if (!quiet) setInviteMessage("招待リンクの作成に失敗しました。");
       return null;
     }
   };
@@ -814,26 +814,25 @@ export default function EventDetailPage() {
     if (!event) return;
 
     // Ensure we have an invite link (server-backed token) so tracking works.
-    const createdInviteLink = !inviteLink && userId ? await handleCreateInviteLink() : null;
+    const createdInviteLink = !inviteLink && userId ? await handleCreateInviteLink(true) : null;
     const urlToShare =
       inviteLink ??
       createdInviteLink ??
       `${window.location.origin}/events/${eventId}${userId ? `?ref=${encodeURIComponent(userId)}` : ""}`;
-    const text = `このイベントに一緒に参加しませんか？ ${urlToShare}`;
+    const text = "このイベントに一緒に参加しませんか？";
 
-    try {
-      if ((navigator as any).share) {
+    if ((navigator as any).share) {
+      try {
         await (navigator as any).share({ title: event.purpose, text, url: urlToShare });
-        setInviteMessage("共有しました。");
-        return;
+      } catch (error) {
+        console.log("[DEBUG] navigator.share failed or cancelled:", error);
       }
-    } catch (error) {
-      console.log("[DEBUG] navigator.share failed or cancelled:", error);
+      return;
     }
 
     // Fallback: Copy link to clipboard
     try {
-      await navigator.clipboard.writeText(urlToShare);
+      await navigator.clipboard.writeText(`${text} ${urlToShare}`);
       setInviteMessage("招待リンクをコピーしました。");
     } catch (error) {
       console.log("[DEBUG] Copy failed:", error);
@@ -1491,7 +1490,10 @@ export default function EventDetailPage() {
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold">フレンドを選択</h3>
               <button
-                onClick={() => setShowInviteOverlay(false)}
+                onClick={() => {
+                  setShowInviteOverlay(false);
+                  setInviteMessage(null);
+                }}
                 className="grid h-8 w-8 place-items-center rounded-full bg-white text-[var(--muted)]"
                 aria-label="閉じる"
               >
