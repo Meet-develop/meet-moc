@@ -1,6 +1,6 @@
 ---
 name: pr-review
-description: PRを専門エージェントで包括的にレビューする。コード品質・テスト・エラーハンドリング・型設計・コメント・簡潔化・ビルド検証の観点でレビューを実施する。PR作成前・マージ前確認・コードレビュー依頼で積極的に呼び出すこと。レビュー観点を絞る場合は引数で指定できる（例: /pr-review tests errors build）。
+description: "PRを専門エージェントで包括的にレビューする。コード品質・テスト・エラーハンドリング・型設計・コメント・簡潔化・ビルド検証の観点でレビューを実施する。PR作成前・マージ前確認・コードレビュー依頼で積極的に呼び出すこと。レビュー観点を絞る場合は引数で指定できる（例: /pr-review tests errors build）。"
 argument-hint: "[build] [code] [tests] [errors] [types] [comments] [simplify] [all] [parallel]"
 allowed-tools:
   - Bash
