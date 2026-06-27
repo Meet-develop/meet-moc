@@ -15,5 +15,6 @@ END;
 ALTER TABLE "event_time_votes" ALTER COLUMN "availability" SET NOT NULL;
 ALTER TABLE "event_time_votes" ALTER COLUMN "availability" SET DEFAULT 'available'::"time_availability";
 
+-- migration-safety: allow-destructive
 -- AlterTable: drop old column
 ALTER TABLE "event_time_votes" DROP COLUMN "is_available";
