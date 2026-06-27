@@ -1,3 +1,13 @@
 {
-  "regions": ["hnd1"]
+  "regions": ["hnd1"],
+  "crons": [
+    {
+      "path": "/api/jobs/reminders?type=today",
+      "schedule": "5 15 * * *"
+    },
+    {
+      "path": "/api/jobs/reminders?type=hourly",
+      "schedule": "0 * * * *"
+    }
+  ]
 }

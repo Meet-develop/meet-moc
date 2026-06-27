@@ -37,7 +37,10 @@ export async function POST(
 
   const event = await prisma.event.findUnique({
     where: { id },
-    include: { participants: true },
+    include: {
+      participants: true,
+      owner: { select: { displayName: true } },
+    },
   });
   if (!event || event.ownerId !== body.ownerId) {
     return NextResponse.json({ message: "Forbidden" }, { status: 403 });
@@ -119,9 +122,10 @@ export async function POST(
     const shouldNotifyUpdated = wasConfirmed && didConfirmedInfoChange;
 
     if (shouldNotifyConfirmed || shouldNotifyUpdated) {
+      const ownerName = event.owner.displayName;
       const message = shouldNotifyConfirmed
-        ? `「${event.purpose}」の開催情報が確定しました（${confirmedInfo}）。`
-        : `「${event.purpose}」の確定情報が更新されました（${confirmedInfo}）。`;
+        ? `${ownerName}さんが「${event.purpose}」の開催情報を確定しました（${confirmedInfo}）。`
+        : `${ownerName}さんが「${event.purpose}」の確定情報を更新しました（${confirmedInfo}）。`;
 
       await createAppNotifications(
         notifyUserIds.map((userId) => ({

@@ -29,6 +29,11 @@ export async function POST(
       id: true,
       ownerId: true,
       purpose: true,
+      owner: {
+        select: {
+          displayName: true,
+        },
+      },
       participants: {
         select: {
           userId: true,
@@ -104,8 +109,8 @@ export async function POST(
         userId: body.inviteeId,
         type: "invite_received",
         title: "イベント招待",
-        body: `${requester?.displayName ?? "参加者"}さんから「${event.purpose}」の招待が届きました。`,
-        message: `${requester?.displayName ?? "参加者"}さんから「${event.purpose}」の招待が届きました。`,
+        body: `${event.owner.displayName}さんから「${event.purpose}」の招待が届きました。`,
+        message: `${event.owner.displayName}さんから「${event.purpose}」の招待が届きました。`,
         eventId: id,
       });
     }
@@ -114,8 +119,8 @@ export async function POST(
       userId: body.requesterId,
       type: "join_approved",
       title: "招待申請が承認されました",
-      body: `「${event.purpose}」の招待申請が承認されました。`,
-      message: `「${event.purpose}」の招待申請が承認されました。`,
+      body: `${event.owner.displayName}さんが「${event.purpose}」の招待申請を承認しました。`,
+      message: `${event.owner.displayName}さんが「${event.purpose}」の招待申請を承認しました。`,
       eventId: id,
     });
 
@@ -131,8 +136,8 @@ export async function POST(
     userId: body.requesterId,
     type: "join_approved",
     title: "招待申請は非承認となりました",
-    body: `「${event.purpose}」の招待申請は見送られました。`,
-    message: `「${event.purpose}」の招待申請は見送られました。`,
+    body: `${event.owner.displayName}さんが「${event.purpose}」の招待申請を見送りました。`,
+    message: `${event.owner.displayName}さんが「${event.purpose}」の招待申請を見送りました。`,
     eventId: id,
   });
 
