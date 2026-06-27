@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { TimeAvailability } from "@prisma/client";
 import { getPlacePhotoUrlByPlaceId, getPlacesForQuery } from "@/lib/places";
 import { createAppNotifications } from "@/lib/notification-delivery";
 import { parseIsoDateTimeWithTimeZone } from "@/lib/datetime";
@@ -146,10 +147,10 @@ export async function GET(
       },
     }));
 
-  const availabilityWeight: Record<string, number> = {
-    available: 2,
-    maybe: 1,
-    unavailable: 0,
+  const availabilityWeight: Record<TimeAvailability, number> = {
+    [TimeAvailability.available]: 2,
+    [TimeAvailability.maybe]: 1,
+    [TimeAvailability.unavailable]: 0,
   };
 
   const timeCandidates = event.timeCandidates
