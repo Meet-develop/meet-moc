@@ -130,7 +130,8 @@ export const buildDefaultTimeCandidates = (
   dayPriorityByWeekday?: Record<WeekdayKey, number>,
   baseNow: Date = new Date(),
   minOffset: number = MIN_CANDIDATE_OFFSET_DAYS,
-  maxCandidates: number = 3
+  maxCandidates: number = 3,
+  windowDays: number = 28
 ) => {
   const weekdaySlots = availability?.weekdaySlots;
   const candidates: Array<TimeCandidateInput & { dayKey: WeekdayKey; priority: number }> = [];
@@ -140,7 +141,7 @@ export const buildDefaultTimeCandidates = (
 
   if (weekdaySlots) {
     let offset = minOffset;
-    while (offset < minOffset + 28) {
+    while (offset < minOffset + windowDays) {
       const jstVirtualDate = getJstVirtualDateAtOffset(baseNow, offset);
       const dayKey = weekdayKeyByIndex[jstVirtualDate.getUTCDay()];
       if (!dayKey) {
@@ -195,7 +196,7 @@ export const buildDefaultTimeCandidates = (
     .filter((day: number | undefined) => day !== undefined);
   let offset = minOffset;
 
-  while (offset < minOffset + 14) {
+  while (offset < minOffset + windowDays) {
     const jstVirtualDate = getJstVirtualDateAtOffset(baseNow, offset);
     const jstDayIndex = jstVirtualDate.getUTCDay();
     const dayKey = weekdayKeyByIndex[jstDayIndex];

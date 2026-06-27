@@ -48,6 +48,7 @@ type EventEditResponse = {
   owner: {
     userId: string;
   };
+  timeCandidates: { startTime: string; endTime: string }[];
   placeCandidates: PlaceResult[];
 };
 
@@ -60,6 +61,7 @@ type EventUpdateComparable = {
   timeSetting: "auto" | "candidates" | "manual";
   placeSetting: "auto" | "manual";
   fixedStartTime: string | null;
+  candidateStartTimes: string;
   fixedPlace: {
     placeId: string;
     name: string;
@@ -183,6 +185,11 @@ const buildComparableFromEvent = (event: EventEditResponse): EventUpdateComparab
   const hasFixedPlace = Boolean(
     event.fixedPlaceId && event.fixedPlaceName && event.fixedPlaceAddress
   );
+  const resolvedTimeSetting: "auto" | "candidates" | "manual" = hasFixedStart
+    ? "manual"
+    : event.timeCandidates.length > 0
+      ? "candidates"
+      : "auto";
 
   return {
     purpose: toComparableText(event.purpose),
@@ -190,9 +197,10 @@ const buildComparableFromEvent = (event: EventEditResponse): EventUpdateComparab
     eventArea: toComparableText(event.area),
     visibility: event.visibility,
     capacity: normalizeCapacity(event.capacity),
-    timeSetting: hasFixedStart ? "manual" : ("auto" as "auto" | "candidates" | "manual"),
+    timeSetting: resolvedTimeSetting,
     placeSetting: hasFixedPlace ? "manual" : "auto",
     fixedStartTime: hasFixedStart ? toDatetimeLocalValue(event.fixedStartTime) : null,
+    candidateStartTimes: [...event.timeCandidates.map((c) => c.startTime)].sort().join(","),
     fixedPlace: hasFixedPlace
       ? {
           placeId: toComparableText(event.fixedPlaceId),
@@ -368,9 +376,21 @@ function EventCreatePageContent() {
       if (fixedStart) {
         setTimeSetting("manual");
         setFixedStart(fixedStart);
+        setActiveCandidates([]);
+      } else if (event.timeCandidates && event.timeCandidates.length > 0) {
+        setTimeSetting("candidates");
+        setFixedStart("");
+        setActiveCandidates(
+          event.timeCandidates.map((c) => ({
+            id: generateId(),
+            startTime: c.startTime,
+            endTime: c.endTime,
+          }))
+        );
       } else {
         setTimeSetting("auto");
         setFixedStart("");
+        setActiveCandidates([]);
       }
 
       if (event.fixedPlaceName && event.fixedPlaceAddress && event.fixedPlaceId) {
@@ -485,6 +505,9 @@ function EventCreatePageContent() {
     [activeCandidates]
   );
 
+  const MAX_TIME_CANDIDATES = 5;
+  const isCandidateFull = activeCandidates.length >= MAX_TIME_CANDIDATES;
+
   const isTimeManualValid =
     timeSetting === "manual"
       ? Boolean(fixedStart)
@@ -506,6 +529,10 @@ function EventCreatePageContent() {
       timeSetting,
       placeSetting,
       fixedStartTime: timeSetting === "manual" ? fixedStart : null,
+      candidateStartTimes:
+        timeSetting === "candidates"
+          ? [...activeCandidates.map((c) => c.startTime)].sort().join(",")
+          : "",
       fixedPlace:
         placeSetting === "manual" && selectedPlace
           ? {
@@ -515,7 +542,7 @@ function EventCreatePageContent() {
             }
           : null,
     }),
-    [capacity, eventComment, fixedStart, placeSetting, resolvedTitle, selectedEventArea, selectedPlace, timeSetting, visibility]
+    [activeCandidates, capacity, eventComment, fixedStart, placeSetting, resolvedTitle, selectedEventArea, selectedPlace, timeSetting, visibility]
   );
 
   const hasEditChanges = useMemo(() => {
@@ -1353,15 +1380,26 @@ function EventCreatePageContent() {
                     {!isSuggestionsLoading && suggestionPool.length > 0 && (
                       <div>
                         <p className="mb-2 text-xs font-semibold text-[var(--foreground)]">提案候補</p>
+                        {isCandidateFull && (
+                          <p className="mb-2 text-xs text-[var(--muted)]">
+                            日程候補が{MAX_TIME_CANDIDATES}件に達したため追加できません。
+                          </p>
+                        )}
                         <div className="space-y-2">
                           {suggestionPool.map((candidate) => (
                             <button
                               key={candidate.id}
+                              disabled={isCandidateFull}
                               onClick={() => {
+                                if (isCandidateFull) return;
                                 setSuggestionPool((prev) => prev.filter((c) => c.id !== candidate.id));
                                 setActiveCandidates((prev) => [...prev, candidate]);
                               }}
-                              className="flex w-full items-center justify-between rounded-2xl bg-white px-4 py-3 text-left shadow-sm"
+                              className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left shadow-sm ${
+                                isCandidateFull
+                                  ? "cursor-not-allowed bg-gray-50 opacity-50"
+                                  : "bg-white"
+                              }`}
                             >
                               <span className="text-sm">{formatCandidateStart(candidate.startTime)}</span>
                               <span className="material-symbols-rounded text-sm text-[var(--muted)]">add</span>
@@ -1384,7 +1422,7 @@ function EventCreatePageContent() {
                           <div className="flex gap-2">
                             <button
                               onClick={() => {
-                                if (!manualDateInput) return;
+                                if (!manualDateInput || isCandidateFull) return;
                                 const start = new Date(manualDateInput);
                                 const end = new Date(start.getTime() + 2 * 60 * 60 * 1000);
                                 setActiveCandidates((prev) => [
@@ -1394,7 +1432,7 @@ function EventCreatePageContent() {
                                 setManualDateInput("");
                                 setShowManualDateInput(false);
                               }}
-                              disabled={!manualDateInput}
+                              disabled={!manualDateInput || isCandidateFull}
                               className="flex-1 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white disabled:opacity-50"
                             >
                               追加
@@ -1410,10 +1448,15 @@ function EventCreatePageContent() {
                       ) : (
                         <button
                           onClick={() => setShowManualDateInput(true)}
-                          className="flex items-center gap-1 rounded-full bg-white px-4 py-2 text-xs font-semibold text-[var(--muted)] shadow-sm"
+                          disabled={isCandidateFull}
+                          className={`flex items-center gap-1 rounded-full px-4 py-2 text-xs font-semibold shadow-sm ${
+                            isCandidateFull
+                              ? "cursor-not-allowed bg-gray-50 text-gray-400 opacity-50"
+                              : "bg-white text-[var(--muted)]"
+                          }`}
                         >
                           <span className="material-symbols-rounded text-sm">add</span>
-                          日程を手動追加
+                          日程を手動追加{isCandidateFull ? "（上限に達しました）" : ""}
                         </button>
                       )}
                     </div>

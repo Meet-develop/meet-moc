@@ -8,6 +8,7 @@ import {
 const TWO_WEEKS = 14;
 const DEFAULT_COUNT = 3;
 const SUGGESTION_COUNT = 5;
+const WINDOW_DAYS = 56;
 
 export async function GET(
   _request: Request,
@@ -26,23 +27,17 @@ export async function GET(
 
   const availability = profile.availability as AvailabilityInput | undefined;
 
-  const defaults = buildDefaultTimeCandidates(
+  const allCandidates = buildDefaultTimeCandidates(
     availability,
     undefined,
     new Date(),
     TWO_WEEKS,
-    DEFAULT_COUNT
+    DEFAULT_COUNT + SUGGESTION_COUNT,
+    WINDOW_DAYS
   );
 
-  const defaultStartTimes = new Set(defaults.map((c) => c.startTime.getTime()));
-
-  const suggestionPool = buildDefaultTimeCandidates(
-    availability,
-    undefined,
-    new Date(),
-    TWO_WEEKS,
-    DEFAULT_COUNT + SUGGESTION_COUNT
-  ).filter((c) => !defaultStartTimes.has(c.startTime.getTime()));
+  const defaults = allCandidates.slice(0, DEFAULT_COUNT);
+  const suggestions = allCandidates.slice(DEFAULT_COUNT);
 
   const toEntry = (c: { startTime: Date; endTime: Date }) => ({
     startTime: c.startTime.toISOString(),
@@ -51,6 +46,6 @@ export async function GET(
 
   return NextResponse.json({
     defaults: defaults.map(toEntry),
-    suggestions: suggestionPool.map(toEntry),
+    suggestions: suggestions.map(toEntry),
   });
 }
