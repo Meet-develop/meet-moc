@@ -267,7 +267,7 @@ export async function PATCH(
     eventArea?: string;
     visibility?: "public" | "limited" | "private";
     capacity?: number;
-    timeSetting?: "auto" | "manual";
+    timeSetting?: "auto" | "candidates" | "manual";
     placeSetting?: "auto" | "manual";
     fixedStartTime?: string;
     fixedPlace?: {
@@ -276,6 +276,10 @@ export async function PATCH(
       address?: string;
     } | null;
     placeQuery?: string;
+    userTimeCandidates?: {
+      startTime: string;
+      endTime: string;
+    }[];
     candidatePlaces?: {
       placeId: string;
       name: string;
@@ -322,7 +326,9 @@ export async function PATCH(
   } = {};
 
   const hasTimeSetting =
-    body.timeSetting === "auto" || body.timeSetting === "manual";
+    body.timeSetting === "auto" ||
+    body.timeSetting === "candidates" ||
+    body.timeSetting === "manual";
   const hasPlaceSetting =
     body.placeSetting === "auto" || body.placeSetting === "manual";
   const hasFixedPlacePayload = body.fixedPlace !== undefined;
@@ -395,7 +401,7 @@ export async function PATCH(
     updateData.fixedEndTime = new Date(
       fixedStartTime.getTime() + 2 * 60 * 60 * 1000
     );
-  } else if (hasTimeSetting && body.timeSetting === "auto") {
+  } else if (hasTimeSetting && (body.timeSetting === "auto" || body.timeSetting === "candidates")) {
     updateData.fixedStartTime = null;
     updateData.fixedEndTime = null;
   }
@@ -404,12 +410,18 @@ export async function PATCH(
     updateData.scheduleMode = derivedScheduleMode;
   }
 
+  const isTimeCandidatesMode = body.timeSetting === "candidates";
   const shouldRegenerateTimeCandidates =
     nextTimeSetting === "auto" &&
     (currentTimeSetting === "manual" || event.timeCandidates.length === 0);
+  const shouldReplaceWithUserCandidates =
+    isTimeCandidatesMode &&
+    body.userTimeCandidates != null &&
+    body.userTimeCandidates.length > 0;
   const shouldDeleteTimeCandidates =
     (hasTimeSetting && body.timeSetting === "manual") ||
-    shouldRegenerateTimeCandidates;
+    shouldRegenerateTimeCandidates ||
+    shouldReplaceWithUserCandidates;
 
   const shouldRegeneratePlaceCandidates =
     nextPlaceSetting === "auto" &&
@@ -516,7 +528,17 @@ export async function PATCH(
     });
   }
 
-  if (shouldRegenerateTimeCandidates) {
+  if (shouldReplaceWithUserCandidates && body.userTimeCandidates) {
+    await prisma.eventTimeCandidate.createMany({
+      data: body.userTimeCandidates.slice(0, 10).map((c) => ({
+        eventId: id,
+        startTime: new Date(c.startTime),
+        endTime: new Date(c.endTime),
+        score: 0,
+        source: "system",
+      })),
+    });
+  } else if (shouldRegenerateTimeCandidates) {
     type ParticipantAvailabilitySource = { userId: string; status: string };
     type ProfileAvailabilitySource = { availability: unknown };
 
