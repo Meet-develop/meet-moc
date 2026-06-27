@@ -1,7 +1,7 @@
 ---
 name: create-issue
-description: GitHubにIssueを作成する。機能追加はfeature_request、バグ修正はbug_reportテンプレートを使用する。
-argument-hint: --title "タイトル" --type feature|bug --body "本文"
+description: GitHubにIssueを作成する。機能追加・バグ修正・改善の3種類のテンプレートをサポートする。Issue作成を依頼されたとき・new-feature/fix-bugワークフローの一部として積極的に呼び出すこと。
+argument-hint: --type feat|fix|improve --title "タイトル"
 allowed-tools:
   - Bash
   - Read
@@ -9,100 +9,57 @@ allowed-tools:
 
 # Skill: create-issue
 
-GitHub Issue を作成する。プロジェクトのIssueテンプレートに従ってフォーマットする。
-
-## 対応エージェント
-Claude Code, CODEX, その他CLIエージェント（`gh` CLI が使えれば動作する）
+`.github/ISSUE_TEMPLATE/` のテンプレートを読み込んで GitHub Issue を作成する。
+テンプレートの内容をインラインで書き直さないこと。必ず `.github/` のファイルを参照すること。
 
 ## 前提条件
+
 - `gh` CLI がインストール・認証済みであること
 - リポジトリ: `Meet-develop/meet-moc`
 
-## Issueテンプレート
+## Step 1 — Issue の種類を判断する
 
-### 機能実装 (feature_request)
-タイトル: `[TASK] <機能名>`
-ラベル: `implementation, enhancement`
+引数の `--type` またはユーザーの依頼内容から判断する:
 
-```
-## 概要
-（この機能が何のために必要なのか、ユーザーにどのような価値を提供するのかを簡潔に記述）
+| 種類 | テンプレート | タイトルプレフィックス | ラベル |
+|---|---|---|---|
+| 機能追加 (`feat`) | `.github/ISSUE_TEMPLATE/feature_request.md` | `[FEAT]` | `enhancement` |
+| バグ修正 (`fix`) | `.github/ISSUE_TEMPLATE/bug_report.md` | `[FIX]` | `bug` |
+| 改善 (`improve`) | `.github/ISSUE_TEMPLATE/improvement.md` | `[IMPROVE]` | `improvement` |
 
-## ゴール (AC: Acceptance Criteria)
-どのような状態になれば「完了」とするかをリストアップ:
-- [ ] （完了条件1）
-- [ ] （完了条件2）
-
-## 仕様・設計詳細
-- **UI/UX:** （デザインや画面構成）
-- **ロジック:** （計算式やバリデーションルール）
-- **DB変更:** （スキーマ変更、既存データへの影響）
-
-## タスクリスト
-- [ ] データベースのマイグレーション
-- [ ] APIエンドポイントの実装
-- [ ] フロントエンドのコンポーネント作成
-
-## 関連情報
-- 関連するIssue: #
-- 参考ドキュメント:
-- 懸念点・トレードオフ:
-```
-
-### バグ修正 (bug_report)
-タイトル: `[BUG] <バグ概要>`
-ラベル: `bug`
-
-## 実行方法（優先順位順）
-
-### 方法A — GitHub MCP（Claude Code 推奨）
-Claude Code でMCPが有効な場合（`.mcp.json` + `.env.local` 設定済み）、MCPの `create_issue` ツールを直接使用する。
-
-### 方法B — github-api.sh（MCP不使用 / CODEX / CI）
-`.env.local` にトークンが設定されていれば即時実行できる。
+## Step 2 — テンプレートを読み込む
 
 ```bash
-PROJECT_ROOT="<meet-mocのパス>"
-SCRIPT="$PROJECT_ROOT/.claude/scripts/github-api.sh"
-
-# 機能追加の場合
-bash "$SCRIPT" create-issue \
-  --title "[TASK] <タイトル>" \
-  --label "implementation,enhancement" \
-  --body "$(cat <<'EOF'
-## 概要
-...
-
-## ゴール (AC: Acceptance Criteria)
-- [ ] ...
-
-## 仕様・設計詳細
-- **UI/UX:** ...
-- **ロジック:** ...
-- **DB変更:** ...
-
-## タスクリスト
-- [ ] ...
-
-## 関連情報
-- 関連するIssue: #
-- 参考ドキュメント:
-- 懸念点・トレードオフ:
-EOF
-)"
-
-# バグ修正の場合
-bash "$SCRIPT" create-issue \
-  --title "[BUG] <タイトル>" \
-  --label "bug" \
-  --body "..."
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+# 種類に応じて適切なテンプレートファイルを読み込む
 ```
 
-出力:
-```
-ISSUE_NUMBER=42
-ISSUE_URL=https://github.com/Meet-develop/meet-moc/issues/42
+フロントマター（`---` で囲まれた YAML 部分）は除去して、Markdown 本文部分のみを Issue 本文に使用する。
+各セクションの `<!-- ... -->` コメントを除去し、実際の内容を埋める。
+
+## Step 3 — Issue を作成する
+
+### 方法 A — GitHub MCP（Claude Code 推奨）
+
+MCP の `mcp__github__create_issue` ツールを使用する（設定済みの場合）。
+
+### 方法 B — gh CLI
+
+```bash
+gh issue create \
+  --repo Meet-develop/meet-moc \
+  --title "[FEAT] <タイトル>" \
+  --label "enhancement" \
+  --body "<Step 2 で生成したテンプレート本文>"
 ```
 
-### Step 3 — Issue番号を記録する
-出力の `ISSUE_NUMBER` を取得し、後続の作業（ブランチ名など）で使用する。
+## Step 4 — Issue 番号を記録する
+
+作成後に表示される Issue URL から番号を取得して出力する:
+
+```
+ISSUE_NUMBER=65
+ISSUE_URL=https://github.com/Meet-develop/meet-moc/issues/65
+```
+
+この番号を後続のブランチ作成・PR 作成で使用する。

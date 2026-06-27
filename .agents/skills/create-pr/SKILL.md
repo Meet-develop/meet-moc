@@ -1,87 +1,55 @@
 ---
 name: create-pr
-description: 作業ブランチからdevelopへのPull Requestを作成する。
-argument-hint: --title "タイトル" --issue 42 --branch "gh-42-feature-name"
+description: 作業ブランチからdevelopへのPull Requestを作成する。PR作成を依頼されたとき・new-feature/fix-bugワークフローの最終ステップとして積極的に呼び出すこと。
+argument-hint: --title "タイトル" --issue 42
 allowed-tools:
   - Bash
+  - Read
 ---
 
 # Skill: create-pr
 
-作業ブランチから `develop` へのPull Requestを作成する。
-
-## 対応エージェント
-Claude Code, CODEX, その他CLIエージェント
+`.github/PULL_REQUEST_TEMPLATE.md` を読み込んで Pull Request を作成する。
+テンプレートの内容をインラインで書き直さないこと。必ず `.github/` のファイルを参照すること。
 
 ## 前提条件
-- `.env.local` に `GITHUB_PERSONAL_ACCESS_TOKEN` が設定済みであること
-- 作業ブランチが remote にプッシュ済みであること
+
+- 作業ブランチが remote にプッシュ済みであること（未プッシュなら `git push -u origin <branch>` を実行）
 - リポジトリ: `Meet-develop/meet-moc`
-- デフォルトベースブランチ: `develop`
+- ベースブランチ: `develop`
 
-## ブランチ命名規則
-```
-gh-{issue番号}-{機能の短い説明をケバブケースで}
-例: gh-42-add-triangle-vote
-```
+## Step 1 — 変更内容を把握する
 
-## 実行手順
-
-### Step 1 — 変更内容を確認する
 ```bash
 git log develop..HEAD --oneline
 git diff develop...HEAD --stat
 ```
 
-### Step 2 — ブランチをpushする（未pushの場合）
-```bash
-git push -u origin <branch-name>
-```
-
-### Step 3 — PR本文を組み立てる
-
-```markdown
-## 概要
-（変更内容の簡潔な説明）
-
-## 関連Issue
-Closes #<issue番号>
-
-## 変更内容
-- （主な変更点1）
-- （主な変更点2）
-
-## テスト確認
-- [ ] ローカルで動作確認済み
-- [ ] 既存機能への影響を確認済み
-- [ ] DBマイグレーションが正常に実行できる（DB変更がある場合）
-```
-
-### Step 4 — PR作成を実行する
+## Step 2 — PR テンプレートを読み込む
 
 ```bash
-PROJECT_ROOT="<meet-mocのパス>"
-bash "$PROJECT_ROOT/.claude/scripts/github-api.sh" create-pr \
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cat "$REPO_ROOT/.github/PULL_REQUEST_TEMPLATE.md"
+```
+
+テンプレートの各セクション（`## 概要`、`## 影響範囲`、`## 変更点`、`## QA 観点`、`## 動作確認ケース`）に実際の内容を埋める。
+`<!-- ... -->` コメントは除去する。
+`Closes #<issue番号>` を `## 概要` 末尾に追記する。
+
+## Step 3 — PR を作成する
+
+```bash
+gh pr create \
+  --repo Meet-develop/meet-moc \
+  --base develop \
+  --head <branch-name> \
   --title "<PRタイトル>" \
-  --branch "<ブランチ名>" \
-  --issue <issue番号> \
-  --body "..."
+  --body "<Step 2 で生成したテンプレート本文>"
 ```
 
-出力:
+## Step 4 — PR URL を出力する
+
 ```
-PR_NUMBER=43
-PR_URL=https://github.com/Meet-develop/meet-moc/pull/43
-```
-
-### ローカルテスト環境の起動方法
-```bash
-# Docker アプリ起動（DB + Next.js）
-docker compose up -d
-
-# マイグレーション確認
-docker compose exec app npm run db:migrate:dev
-
-# ログ確認
-docker compose logs -f app
+PR_NUMBER=66
+PR_URL=https://github.com/Meet-develop/meet-moc/pull/66
 ```
