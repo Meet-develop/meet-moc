@@ -191,7 +191,6 @@ export default function EventDetailPage() {
     "same_members_new_place" | "same_place_new_members" | null
   >(null);
   const [inviteLink, setInviteLink] = useState<string | null>(null);
-  const [showShareFallback, setShowShareFallback] = useState(false);
 
   const [placeQuery, setPlaceQuery] = useState("");
   const [placeResults, setPlaceResults] = useState<PlaceResult[]>([]);
@@ -828,11 +827,18 @@ export default function EventDetailPage() {
         setInviteMessage("共有しました。");
         return;
       }
-    } catch {
-      // navigator.share failed, show fallback UI
+    } catch (error) {
+      console.log("[DEBUG] navigator.share failed or cancelled:", error);
     }
 
-    setShowShareFallback(true);
+    // Fallback: Copy link to clipboard
+    try {
+      await navigator.clipboard.writeText(urlToShare);
+      setInviteMessage("招待リンクをコピーしました。");
+    } catch (error) {
+      console.log("[DEBUG] Copy failed:", error);
+      setInviteMessage("コピーに失敗しました。リンクを長押しして共有してください。");
+    }
   };
 
   const handleCalendarDownload = async () => {
@@ -918,7 +924,7 @@ export default function EventDetailPage() {
             <h1 className="text-lg font-semibold">イベント詳細</h1>
             <div className="ml-auto hidden">
               <button
-                onClick={handleShare}
+                onClick={openInviteOverlay}
                 className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
                 aria-label="共有"
               >
@@ -945,7 +951,7 @@ export default function EventDetailPage() {
                 </div>
                 <div>
                   <button
-                    onClick={handleShare}
+                    onClick={openInviteOverlay}
                     className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm"
                     aria-label="共有"
                   >
@@ -1558,80 +1564,26 @@ export default function EventDetailPage() {
               </div>
             )}
 
-            <button
-              onClick={handleInviteFriends}
-              disabled={selectedInviteeIds.length === 0 || !canAccessParticipantActions}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="material-symbols-rounded">send</span>
-              {event.visibility === "private" && userId !== event.owner.userId
-                ? "オーナーに申請する"
-                : "招待する"}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {showShareFallback && event && (
-        <div className="fixed inset-0 z-[60] flex items-end bg-black/35 p-3 sm:items-center sm:justify-center sm:p-6">
-          <div className="w-full max-w-md rounded-3xl bg-[var(--surface)] p-4 shadow-2xl">
-            <div className="flex items-center justify-between">
-              <h3 className="text-base font-semibold">共有</h3>
+            <div className="mt-4 flex flex-col gap-2">
               <button
-                onClick={() => setShowShareFallback(false)}
-                className="grid h-8 w-8 place-items-center rounded-full bg-white text-[var(--muted)]"
-                aria-label="閉じる"
+                onClick={handleInviteFriends}
+                disabled={selectedInviteeIds.length === 0 || !canAccessParticipantActions}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
               >
-                <span className="material-symbols-rounded">close</span>
+                <span className="material-symbols-rounded">send</span>
+                {event.visibility === "private" && userId !== event.owner.userId
+                  ? "選択したフレンドの招待を申請する"
+                  : "選択したフレンドを招待する"}
               </button>
-            </div>
 
-            <div className="mt-4 flex flex-col gap-3">
-              <p className="text-sm text-[var(--muted)]">このイベントを共有する</p>
-              <div className="grid grid-cols-1 gap-2">
-                <button
-                  onClick={() => {
-                    const url = inviteLink ?? `${window.location.origin}/events/${eventId}?ref=${userId ?? ""}`;
-                    const text = `このイベントに一緒に参加しませんか？ ${url}`;
-                    window.open(`https://line.me/R/msg/text/?${encodeURIComponent(text)}`);
-                    console.log("[DEBUG] LINE share clicked, url:", url);
-                  }}
-                  className="flex items-center justify-center gap-2 rounded-full bg-green-500 hover:bg-green-600 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors"
-                >
-                  <span className="material-symbols-rounded">chat</span>
-                  LINEで共有
-                </button>
-                <button
-                  onClick={() => {
-                    const url = inviteLink ?? `${window.location.origin}/events/${eventId}?ref=${userId ?? ""}`;
-                    const text = `このイベントに一緒に参加しませんか？`;
-                    window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`);
-                    console.log("[DEBUG] X (Twitter) share clicked, url:", url);
-                  }}
-                  className="flex items-center justify-center gap-2 rounded-full bg-black hover:bg-gray-800 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors"
-                >
-                  <span className="material-symbols-rounded">share</span>
-                  Xで共有
-                </button>
-                <button
-                  onClick={() => {
-                    const url = inviteLink ?? `${window.location.origin}/events/${eventId}?ref=${userId ?? ""}`;
-                    try {
-                      navigator.clipboard.writeText(url);
-                      setInviteMessage("招待リンクをコピーしました。");
-                      console.log("[DEBUG] Link copied:", url);
-                    } catch (error) {
-                      console.log("[DEBUG] Copy failed:", error);
-                      setInviteMessage("コピーに失敗しました。リンクを長押しして共有してください。");
-                    }
-                    setShowShareFallback(false);
-                  }}
-                  className="flex items-center justify-center gap-2 rounded-full bg-white border-2 border-gray-300 hover:bg-gray-50 px-4 py-3 text-sm font-semibold text-[var(--foreground)] shadow-sm transition-colors"
-                >
-                  <span className="material-symbols-rounded">content_copy</span>
-                  リンクをコピー
-                </button>
-              </div>
+              <button
+                onClick={handleShare}
+                disabled={!canAccessParticipantActions}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-white border-2 border-gray-200 hover:bg-gray-50 px-4 py-2 text-sm font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+              >
+                <span className="material-symbols-rounded">share</span>
+                外部アプリで招待する
+              </button>
             </div>
           </div>
         </div>
