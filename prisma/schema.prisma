@@ -96,6 +96,14 @@ enum CandidateSource {
   @@map("candidate_source")
 }
 
+enum TimeAvailability {
+  available
+  maybe
+  unavailable
+
+  @@map("time_availability")
+}
+
 enum NotificationType {
   event_confirmed
   invite_received
@@ -279,10 +287,10 @@ model EventPlaceCandidate {
 }
 
 model EventTimeVote {
-  candidateId String   @map("candidate_id") @db.Uuid
-  userId      String   @map("user_id") @db.Uuid
-  isAvailable Boolean  @default(true) @map("is_available")
-  createdAt   DateTime @default(now()) @map("created_at")
+  candidateId  String           @map("candidate_id") @db.Uuid
+  userId       String           @map("user_id") @db.Uuid
+  availability TimeAvailability @default(available) @map("availability")
+  createdAt    DateTime         @default(now()) @map("created_at")
 
   candidate   EventTimeCandidate @relation(fields: [candidateId], references: [id], onDelete: Cascade)
   user        Profile            @relation(fields: [userId], references: [userId], onDelete: Cascade)

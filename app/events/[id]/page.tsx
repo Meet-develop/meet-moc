@@ -60,7 +60,7 @@ type EventDetail = {
     source: "system" | "proposal";
     proposedBy?: string | null;
     availableVotes: number;
-    myAvailability: boolean | null;
+    myAvailability: "available" | "maybe" | "unavailable" | null;
   }[];
   placeCandidates: {
     id: string;
@@ -233,7 +233,7 @@ export default function EventDetailPage() {
   const [showPlaceOverlay, setShowPlaceOverlay] = useState(false);
   const [selectedPlaceDetail, setSelectedPlaceDetail] = useState<EventDetail["placeCandidates"][number] | null>(null);
   const [proposalStart, setProposalStart] = useState("");
-  const [timeVoteSelection, setTimeVoteSelection] = useState<Record<string, boolean | undefined>>({});
+  const [timeVoteSelection, setTimeVoteSelection] = useState<Record<string, "available" | "maybe" | "unavailable" | undefined>>({});
   const [placeVoteSelection, setPlaceVoteSelection] = useState<Record<string, "good" | "bad" | undefined>>({});
   const [calendarRegistrationVersion, setCalendarRegistrationVersion] = useState<string | null>(null);
   const [isCalendarDownloading, setIsCalendarDownloading] = useState(false);
@@ -649,7 +649,7 @@ export default function EventDetailPage() {
     router.push(`/events/${data.id}`);
   };
 
-  const handleTimeVote = async (candidateId: string, isAvailable: boolean) => {
+  const handleTimeVote = async (candidateId: string, availability: "available" | "maybe" | "unavailable") => {
     const currentTs = new Date().getTime();
     if (
       !userId ||
@@ -659,11 +659,11 @@ export default function EventDetailPage() {
     ) {
       return;
     }
-    setTimeVoteSelection((prev) => ({ ...prev, [candidateId]: isAvailable }));
+    setTimeVoteSelection((prev) => ({ ...prev, [candidateId]: availability }));
     await fetch(`/api/events/${eventId}/votes/time`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId, candidateId, isAvailable }),
+      body: JSON.stringify({ userId, candidateId, availability }),
     });
     const query = userId ? `?viewerId=${userId}` : "";
     const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
@@ -1169,38 +1169,57 @@ export default function EventDetailPage() {
                       {(() => {
                         const selected =
                           timeVoteSelection[candidate.id] ??
-                          (candidate.myAvailability == null ? undefined : candidate.myAvailability);
+                          (candidate.myAvailability ?? undefined);
+                        const disabled = candidateActionsDisabled || !canAccessParticipantActions;
+                        const baseBtn = `grid h-9 w-9 place-items-center rounded-full text-sm font-bold ${disabled ? "cursor-not-allowed opacity-50" : ""}`;
                         return (
-                      <div className="flex shrink-0 items-center gap-2">
-                        <button
-                          onClick={() => handleTimeVote(candidate.id, true)}
-                          disabled={candidateActionsDisabled || !canAccessParticipantActions}
-                          className={`grid h-9 w-9 place-items-center rounded-full ${
-                            selected === true
-                              ? "bg-emerald-100 text-emerald-700"
-                              : selected === false
-                                ? "bg-gray-100 text-gray-400"
-                                : "bg-white text-[var(--muted)] shadow-sm"
-                          } ${candidateActionsDisabled || !canAccessParticipantActions ? "cursor-not-allowed opacity-50" : ""}`}
-                          aria-label="この候補は参加可能"
-                        >
-                          <span className="material-symbols-rounded text-base">check</span>
-                        </button>
-                        <button
-                          onClick={() => handleTimeVote(candidate.id, false)}
-                          disabled={candidateActionsDisabled || !canAccessParticipantActions}
-                          className={`grid h-9 w-9 place-items-center rounded-full ${
-                            selected === false
-                              ? "bg-rose-100 text-rose-700"
-                              : selected === true
-                                ? "bg-gray-100 text-gray-400"
-                                : "bg-white text-[var(--muted)] shadow-sm"
-                          } ${candidateActionsDisabled || !canAccessParticipantActions ? "cursor-not-allowed opacity-50" : ""}`}
-                          aria-label="この候補は参加不可"
-                        >
-                          <span className="material-symbols-rounded text-base">close</span>
-                        </button>
-                      </div>
+                          <div className="flex shrink-0 items-center gap-1.5">
+                            <button
+                              onClick={() => handleTimeVote(candidate.id, "available")}
+                              disabled={disabled}
+                              aria-pressed={selected === "available"}
+                              className={`${baseBtn} ${
+                                selected === "available"
+                                  ? "bg-emerald-100 text-emerald-700"
+                                  : selected != null
+                                    ? "bg-gray-100 text-gray-400"
+                                    : "bg-white text-[var(--muted)] shadow-sm"
+                              }`}
+                              aria-label="参加できる"
+                            >
+                              <span className="material-symbols-rounded">radio_button_unchecked</span>
+                            </button>
+                            <button
+                              onClick={() => handleTimeVote(candidate.id, "maybe")}
+                              disabled={disabled}
+                              aria-pressed={selected === "maybe"}
+                              className={`${baseBtn} ${
+                                selected === "maybe"
+                                  ? "bg-amber-100 text-amber-700"
+                                  : selected != null
+                                    ? "bg-gray-100 text-gray-400"
+                                    : "bg-white text-[var(--muted)] shadow-sm"
+                              }`}
+                              aria-label="たぶん参加できる"
+                            >
+                              <span className="material-symbols-rounded material-symbols-rounded-outline">change_history</span>
+                            </button>
+                            <button
+                              onClick={() => handleTimeVote(candidate.id, "unavailable")}
+                              disabled={disabled}
+                              aria-pressed={selected === "unavailable"}
+                              className={`${baseBtn} ${
+                                selected === "unavailable"
+                                  ? "bg-rose-100 text-rose-700"
+                                  : selected != null
+                                    ? "bg-gray-100 text-gray-400"
+                                    : "bg-white text-[var(--muted)] shadow-sm"
+                              }`}
+                              aria-label="参加できない"
+                            >
+                              <span className="material-symbols-rounded">close</span>
+                            </button>
+                          </div>
                         );
                       })()}
                     </div>
