@@ -116,7 +116,7 @@ export async function POST(
       const tokenInvite = await prisma.eventInvite.findUnique({
         where: { token: body.inviteToken },
       });
-      if (tokenInvite) {
+      if (tokenInvite && tokenInvite.eventId === id && tokenInvite.inviterId !== body.userId) {
         inviterIdFromToken = tokenInvite.inviterId;
         // Update the invite to mark this user as invitee if not already set
         if (!tokenInvite.inviteeId) {

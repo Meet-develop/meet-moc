@@ -810,7 +810,7 @@ export default function EventDetailPage() {
     }
   };
 
-  const handleShare = async () => {
+  const handleShare = async (quiet = false) => {
     if (!event) return;
 
     // Ensure we have an invite link (server-backed token) so tracking works.
@@ -825,7 +825,7 @@ export default function EventDetailPage() {
       try {
         await (navigator as any).share({ title: event.purpose, text, url: urlToShare });
       } catch (error) {
-        console.log("[DEBUG] navigator.share failed or cancelled:", error);
+        if (!quiet) setInviteMessage("共有に失敗しました。");
       }
       return;
     }
@@ -833,10 +833,9 @@ export default function EventDetailPage() {
     // Fallback: Copy link to clipboard
     try {
       await navigator.clipboard.writeText(`${text} ${urlToShare}`);
-      setInviteMessage("招待リンクをコピーしました。");
+      if (!quiet) setInviteMessage("招待リンクをコピーしました。");
     } catch (error) {
-      console.log("[DEBUG] Copy failed:", error);
-      setInviteMessage("コピーに失敗しました。リンクを長押しして共有してください。");
+      if (!quiet) setInviteMessage("コピーに失敗しました。リンクを長押しして共有してください。");
     }
   };
 
@@ -923,7 +922,7 @@ export default function EventDetailPage() {
             <h1 className="text-lg font-semibold">イベント詳細</h1>
             <div className="ml-auto hidden">
               <button
-                onClick={openInviteOverlay}
+                onClick={() => handleShare()}
                 className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
                 aria-label="共有"
               >
@@ -950,7 +949,7 @@ export default function EventDetailPage() {
                 </div>
                 <div>
                   <button
-                    onClick={openInviteOverlay}
+                    onClick={() => handleShare()}
                     className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm"
                     aria-label="共有"
                   >
@@ -1579,7 +1578,7 @@ export default function EventDetailPage() {
               </button>
 
               <button
-                onClick={handleShare}
+                onClick={() => handleShare()}
                 disabled={!canAccessParticipantActions}
                 className="flex w-full items-center justify-center gap-2 rounded-full bg-white border-2 border-gray-200 hover:bg-gray-50 px-4 py-2 text-sm font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
               >
