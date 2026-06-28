@@ -279,6 +279,7 @@ function EventCreatePageContent() {
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
+  const hasFetchedSuggestionsRef = useRef(false);
 
   const purposeSectionRef = useRef<HTMLElement | null>(null);
   const visibilitySectionRef = useRef<HTMLElement | null>(null);
@@ -422,12 +423,10 @@ function EventCreatePageContent() {
   }, [editEventId, isEditMode, userId]);
 
   useEffect(() => {
-    if (timeSetting !== "candidates" || !userId) {
-      setActiveCandidates([]);
-      setSuggestionPool([]);
-      return;
-    }
+    if (timeSetting !== "candidates" || !userId) return;
+    if (hasFetchedSuggestionsRef.current) return;
 
+    hasFetchedSuggestionsRef.current = true;
     let active = true;
     setIsSuggestionsLoading(true);
 
@@ -442,8 +441,10 @@ function EventCreatePageContent() {
           defaults: { startTime: string; endTime: string }[];
           suggestions: { startTime: string; endTime: string }[];
         };
-        setActiveCandidates(
-          data.defaults.map((c) => ({ id: generateId(), startTime: c.startTime, endTime: c.endTime }))
+        setActiveCandidates((prev) =>
+          prev.length === 0
+            ? data.defaults.map((c) => ({ id: generateId(), startTime: c.startTime, endTime: c.endTime }))
+            : prev
         );
         setSuggestionPool(
           data.suggestions.map((c) => ({ id: generateId(), startTime: c.startTime, endTime: c.endTime }))
