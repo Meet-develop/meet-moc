@@ -826,7 +826,23 @@ export default function EventDetailPage() {
         await (navigator as any).share({ title: event.purpose, text, url: urlToShare });
       } catch (error) {
         const err = error as any;
-        if (err && err.name === "AbortError") {
+        const errMsg = err?.message || "";
+        const errName = err?.name || "";
+        const errStr = String(error);
+
+        const isUserCancellation =
+          errName === "AbortError" ||
+          errName === "NotAllowedError" ||
+          errMsg.includes("Share canceled") ||
+          errMsg.includes("canceled") ||
+          errMsg.includes("cancelled") ||
+          errMsg.includes("aborted") ||
+          errStr.includes("AbortError") ||
+          errStr.includes("canceled") ||
+          errStr.includes("cancelled") ||
+          errStr.includes("aborted");
+
+        if (isUserCancellation) {
           return;
         }
         if (!quiet) setInviteMessage("共有に失敗しました。");
