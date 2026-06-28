@@ -274,6 +274,22 @@ export default function EventDetailPage() {
   }, []);
 
   useEffect(() => {
+    try {
+      const searchParams = new URL(window.location.href).searchParams;
+      const ref = searchParams.get("ref");
+      const inviteToken = searchParams.get("inviteToken");
+      if (ref) {
+        window.sessionStorage.setItem("pendingInviteRef", ref);
+      }
+      if (inviteToken) {
+        window.sessionStorage.setItem("pendingInviteToken", inviteToken);
+      }
+    } catch {
+      // ignore
+    }
+  }, []);
+
+  useEffect(() => {
     const loadEvent = async () => {
       const requestId = latestEventRequestRef.current + 1;
       latestEventRequestRef.current = requestId;
@@ -528,10 +544,20 @@ export default function EventDetailPage() {
       setIsAuthOverlayOpen(true);
       return;
     }
+    
+    // Get inviteToken from sessionStorage if user accessed via invite link
+    const inviteToken = (() => {
+      try {
+        return window.sessionStorage.getItem("pendingInviteToken");
+      } catch {
+        return undefined;
+      }
+    })();
+    
     await fetch(`/api/events/${eventId}/join`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ userId }),
+      body: JSON.stringify({ userId, inviteToken }),
     });
     const query = userId ? `?viewerId=${userId}` : "";
     const response = await fetch(`/api/events/${eventId}${query}`, { cache: "no-store" });
@@ -844,16 +870,104 @@ export default function EventDetailPage() {
     setShowInviteOverlay(false);
   };
 
-  const handleCreateInviteLink = async () => {
-    if (!event || !userId) return;
+  const handleCreateInviteLink = async (quiet = false) => {
+    if (!event || !userId) return null;
 
     if (event.visibility === "private" && userId !== event.owner.userId) {
-      setInviteMessage("プライベートイベントではオーナーのみ招待リンクを作成できます。");
+      if (!quiet) setInviteMessage("プライベートイベントではオーナーのみ招待リンクを作成できます。");
+      return null;
+    }
+
+    if (!quiet) setInviteMessage(null);
+    try {
+      const response = await fetch(`/api/events/${eventId}/invites`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ actorId: userId, mode: "link" }),
+      });
+
+      if (!response.ok) {
+        if (!quiet) setInviteMessage("招待リンクの作成に失敗しました。");
+        return null;
+      }
+
+      const data = await response.json();
+      const token = data.token as string | undefined;
+      if (!token) {
+        if (!quiet) setInviteMessage("招待リンクの作成に失敗しました。");
+        return null;
+      }
+
+      const url = `${window.location.origin}/events/${eventId}?inviteToken=${encodeURIComponent(
+        token
+      )}&ref=${encodeURIComponent(userId)}`;
+      setInviteLink(url);
+      if (!quiet) setInviteMessage("招待リンクを作成しました。");
+      return url;
+    } catch {
+      if (!quiet) setInviteMessage("招待リンクの作成に失敗しました。");
+      return null;
+    }
+  };
+
+  const handleShare = async (quiet = false) => {
+    if (!event) return;
+
+    // Ensure we have an invite link (server-backed token) so tracking works.
+    // Only attempt to create a server-backed invite token if the user has permissions (owner or approved)
+    const createdInviteLink =
+      !inviteLink && canAccessParticipantActions
+        ? await handleCreateInviteLink(true)
+        : null;
+    const urlToShare =
+      inviteLink ??
+      createdInviteLink ??
+      `${window.location.origin}/events/${eventId}${userId ? `?ref=${encodeURIComponent(userId)}` : ""}`;
+    const text = "このイベントに一緒に参加しませんか？";
+
+    if ((navigator as any).share) {
+      try {
+        await (navigator as any).share({ title: event.purpose, text, url: urlToShare });
+      } catch (error) {
+        const err = error as any;
+        const errMsg = err?.message || "";
+        const errName = err?.name || "";
+        const errStr = String(error);
+
+        const isUserCancellation =
+          errName === "AbortError" ||
+          errName === "NotAllowedError" ||
+          errMsg.includes("Share canceled") ||
+          errMsg.includes("canceled") ||
+          errMsg.includes("cancelled") ||
+          errMsg.includes("aborted") ||
+          errStr.includes("AbortError") ||
+          errStr.includes("canceled") ||
+          errStr.includes("cancelled") ||
+          errStr.includes("aborted");
+
+        if (isUserCancellation) {
+          return;
+        }
+        if (!quiet) setInviteMessage("共有に失敗しました。");
+      }
       return;
     }
 
-    setInviteLink(`${window.location.origin}/events/${eventId}`);
-    setInviteMessage("招待リンクを作成しました。");
+    // Fallback: Copy link to clipboard
+    try {
+      await navigator.clipboard.writeText(`${text} ${urlToShare}`);
+      if (!quiet) {
+        const isInviteTokenLink = Boolean(inviteLink || createdInviteLink);
+        setInviteMessage(
+          isInviteTokenLink
+            ? "招待リンクをコピーしました。"
+            : "イベントのリンクをコピーしました。"
+        );
+      }
+    } catch (error) {
+      if (!quiet) setInviteMessage("コピーに失敗しました。リンクを長押しして共有してください。");
+    }
   };
 
   const handleCalendarDownload = async () => {
@@ -908,17 +1022,6 @@ export default function EventDetailPage() {
     }
   };
 
-  const handleCopyInviteLink = async () => {
-    if (!inviteLink) return;
-
-    try {
-      await navigator.clipboard.writeText(inviteLink);
-      setInviteMessage("招待リンクをコピーしました。");
-    } catch {
-      setInviteMessage("コピーに失敗しました。リンクを長押しして共有してください。");
-    }
-  };
-
   if (isLoading) {
     return (
       <div className="min-h-screen px-6 py-20 text-center text-sm text-[var(--muted)]">
@@ -948,6 +1051,15 @@ export default function EventDetailPage() {
               <span className="material-symbols-rounded">chevron_left</span>
             </Link>
             <h1 className="text-lg font-semibold">イベント詳細</h1>
+            <div className="ml-auto hidden">
+              <button
+                onClick={() => handleShare()}
+                className="grid h-9 w-9 place-items-center rounded-full bg-white text-[var(--foreground)] shadow-sm"
+                aria-label="共有"
+              >
+                <span className="material-symbols-rounded">share</span>
+              </button>
+            </div>
           </div>
         </div>
       </header>
@@ -962,8 +1074,20 @@ export default function EventDetailPage() {
                 {visibilityMeta[event.visibility].label}
               </p>
               <h1 className="text-3xl font-semibold">{event.purpose}</h1>
-              <div className="mt-3 text-sm text-[var(--muted)]">
-                <AvatarName displayName={event.owner.displayName} avatarIcon={event.owner.avatarIcon} />
+              <div className="mt-3 flex items-center justify-between gap-3">
+                <div className="text-sm text-[var(--muted)]">
+                  <AvatarName displayName={event.owner.displayName} avatarIcon={event.owner.avatarIcon} />
+                </div>
+                <div>
+                  <button
+                    onClick={() => handleShare()}
+                    className="inline-flex items-center gap-2 rounded-full bg-white px-3 py-2 text-sm font-semibold text-[var(--foreground)] shadow-sm"
+                    aria-label="共有"
+                  >
+                    <span className="material-symbols-rounded">share</span>
+                    共有
+                  </button>
+                </div>
               </div>
           </div>
 
@@ -982,16 +1106,55 @@ export default function EventDetailPage() {
               </p>
               <p className="mt-2 text-sm font-semibold">{event.area ?? "未設定"}</p>
             </div>
-            <div className="p-1">
+            <div className="min-w-0 p-1">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
                 場所
               </p>
-              <p className="mt-2 text-sm font-semibold">
-                {event.fixedPlaceName ?? "候補から決定"}
-              </p>
-              <p className="text-xs text-[var(--muted)]">
-                {event.fixedPlaceAddress ?? ""}
-              </p>
+              {event.fixedPlaceName ? (
+                <button
+                  onClick={() => {
+                    const matched = event.placeCandidates.find(
+                      (c) => c.placeId === event.fixedPlaceId
+                    );
+                    setSelectedPlaceDetail(
+                      matched ?? {
+                        id: event.fixedPlaceId ?? "",
+                        placeId: event.fixedPlaceId ?? "",
+                        name: event.fixedPlaceName ?? "",
+                        address: event.fixedPlaceAddress ?? "",
+                        lat: 0,
+                        lng: 0,
+                        photoUrl: null,
+                        mapsUrl: (() => {
+                          const query = event.fixedPlaceAddress ?? event.fixedPlaceName ?? "";
+                          const base = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
+                          return event.fixedPlaceId
+                            ? `${base}&query_place_id=${encodeURIComponent(event.fixedPlaceId)}`
+                            : query ? base : undefined;
+                        })(),
+                        score: 0,
+                        source: "system",
+                        myScore: null,
+                      }
+                    );
+                  }}
+                  className="mt-2 w-full overflow-hidden text-left"
+                >
+                  <div className="mt-2 flex items-center gap-1">
+                    <span className="material-symbols-rounded text-base text-[var(--accent)] shrink-0">location_on</span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-[var(--accent)]">{event.fixedPlaceName}</p>
+                      <p className="text-xs text-[var(--muted)] truncate">{event.fixedPlaceAddress ?? ""}</p>
+                    </div>
+                    <span className="material-symbols-rounded text-sm text-[var(--muted)] shrink-0">open_in_new</span>
+                  </div>
+                </button>
+              ) : (
+                <>
+                  <p className="mt-2 text-sm font-semibold">候補から決定</p>
+                  <p className="text-xs text-[var(--muted)]"></p>
+                </>
+              )}
             </div>
             <div className="p-1">
               <p className="text-xs uppercase tracking-[0.2em] text-[var(--muted)]">
@@ -1595,7 +1758,10 @@ export default function EventDetailPage() {
             <div className="flex items-center justify-between">
               <h3 className="text-base font-semibold">フレンドを選択</h3>
               <button
-                onClick={() => setShowInviteOverlay(false)}
+                onClick={() => {
+                  setShowInviteOverlay(false);
+                  setInviteMessage(null);
+                }}
                 className="grid h-8 w-8 place-items-center rounded-full bg-white text-[var(--muted)]"
                 aria-label="閉じる"
               >
@@ -1608,39 +1774,6 @@ export default function EventDetailPage() {
                 ? "プライベートイベントのため、選択したフレンドの招待をオーナーに申請します。"
                 : "選択したフレンドにイベント招待を送信します。"}
             </p>
-
-            <div className="mt-3 rounded-2xl bg-white p-3 shadow-sm">
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-xs font-semibold text-[var(--foreground)]">リンクで招待</p>
-                <button
-                  onClick={handleCreateInviteLink}
-                  disabled={
-                    event.visibility === "private" && userId !== event.owner.userId
-                  }
-                  className="flex items-center gap-1 rounded-full bg-orange-100 px-3 py-1 text-xs font-semibold text-[var(--accent)] disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <span className="material-symbols-rounded text-sm">link</span>
-                  作成する
-                </button>
-              </div>
-              {inviteLink && (
-                <div className="mt-2 flex items-center gap-2">
-                  <p className="min-w-0 flex-1 truncate text-xs text-[var(--muted)]">{inviteLink}</p>
-                  <button
-                    onClick={handleCopyInviteLink}
-                    className="grid h-8 w-8 place-items-center rounded-full bg-orange-100 text-[var(--accent)]"
-                    aria-label="招待リンクをコピー"
-                  >
-                    <span className="material-symbols-rounded text-sm">content_copy</span>
-                  </button>
-                </div>
-              )}
-              {event.visibility === "private" && userId !== event.owner.userId && (
-                <p className="mt-2 text-[11px] text-[var(--muted)]">
-                  プライベートイベントのリンク招待はオーナーのみ作成できます。
-                </p>
-              )}
-            </div>
 
             {inviteMessage && <p className="mt-3 text-xs text-[var(--accent)]">{inviteMessage}</p>}
 
@@ -1701,16 +1834,27 @@ export default function EventDetailPage() {
               </div>
             )}
 
-            <button
-              onClick={handleInviteFriends}
-              disabled={selectedInviteeIds.length === 0 || !canAccessParticipantActions}
-              className="mt-4 flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <span className="material-symbols-rounded">send</span>
-              {event.visibility === "private" && userId !== event.owner.userId
-                ? "オーナーに申請する"
-                : "招待する"}
-            </button>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                onClick={handleInviteFriends}
+                disabled={selectedInviteeIds.length === 0 || !canAccessParticipantActions}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-sm font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <span className="material-symbols-rounded">send</span>
+                {event.visibility === "private" && userId !== event.owner.userId
+                  ? "選択したフレンドの招待を申請する"
+                  : "選択したフレンドを招待する"}
+              </button>
+
+              <button
+                onClick={() => handleShare()}
+                disabled={!canAccessParticipantActions}
+                className="flex w-full items-center justify-center gap-2 rounded-full bg-white border-2 border-gray-200 hover:bg-gray-50 px-4 py-2 text-sm font-semibold text-[var(--foreground)] disabled:cursor-not-allowed disabled:opacity-50 transition-colors"
+              >
+                <span className="material-symbols-rounded">share</span>
+                外部アプリで招待する
+              </button>
+            </div>
           </div>
         </div>
       )}
