@@ -18,6 +18,7 @@ export async function POST(request: Request) {
     favoriteAreas?: string[];
     favoritePlaces?: string[];
     availability?: unknown;
+    inviteToken?: string | null;
   };
 
   if (!body.userId || !body.displayName) {
@@ -77,6 +78,28 @@ export async function POST(request: Request) {
       message:
         "プロフィールを登録すると、イベント作成やマッチングがスムーズになります。プロフィール設定を完了しましょう。",
     });
+    // If user was created via an invite link, attach invite and create pending friendship
+    if (body.inviteToken) {
+      try {
+        const invite = await prisma.eventInvite.findUnique({ where: { token: body.inviteToken } });
+        if (invite && !invite.inviteeId) {
+          await prisma.eventInvite.update({
+            where: { id: invite.id },
+            data: { inviteeId: body.userId, status: "accepted" },
+          });
+
+          await prisma.friendship.createMany({
+            data: [
+              { userId: body.userId, friendId: invite.inviterId, status: "pending" },
+              { userId: invite.inviterId, friendId: body.userId, status: "pending" },
+            ],
+            skipDuplicates: true,
+          });
+        }
+      } catch {
+        // Ignore invite processing failures to avoid blocking profile creation
+      }
+    }
   }
 
   return NextResponse.json(profile);
