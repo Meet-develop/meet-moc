@@ -814,7 +814,11 @@ export default function EventDetailPage() {
     if (!event) return;
 
     // Ensure we have an invite link (server-backed token) so tracking works.
-    const createdInviteLink = !inviteLink && userId ? await handleCreateInviteLink(true) : null;
+    // Only attempt to create a server-backed invite token if the user has permissions (owner or approved)
+    const createdInviteLink =
+      !inviteLink && canAccessParticipantActions
+        ? await handleCreateInviteLink(true)
+        : null;
     const urlToShare =
       inviteLink ??
       createdInviteLink ??
@@ -853,7 +857,14 @@ export default function EventDetailPage() {
     // Fallback: Copy link to clipboard
     try {
       await navigator.clipboard.writeText(`${text} ${urlToShare}`);
-      if (!quiet) setInviteMessage("招待リンクをコピーしました。");
+      if (!quiet) {
+        const isInviteTokenLink = Boolean(inviteLink || createdInviteLink);
+        setInviteMessage(
+          isInviteTokenLink
+            ? "招待リンクをコピーしました。"
+            : "イベントのリンクをコピーしました。"
+        );
+      }
     } catch (error) {
       if (!quiet) setInviteMessage("コピーに失敗しました。リンクを長押しして共有してください。");
     }
