@@ -825,6 +825,10 @@ export default function EventDetailPage() {
       try {
         await (navigator as any).share({ title: event.purpose, text, url: urlToShare });
       } catch (error) {
+        const err = error as any;
+        if (err && err.name === "AbortError") {
+          return;
+        }
         if (!quiet) setInviteMessage("共有に失敗しました。");
       }
       return;
