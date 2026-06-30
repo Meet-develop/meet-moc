@@ -3,7 +3,6 @@ import { prisma } from "@/lib/prisma";
 import { syncApprovedEventFriendships } from "@/lib/event-friendships";
 import { createAppNotification } from "@/lib/notification-delivery";
 import {
-  needsOwnerApprovalByDeadline,
   shouldAutoApprove,
 } from "@/lib/event-approval";
 
