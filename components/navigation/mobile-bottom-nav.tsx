@@ -171,7 +171,7 @@ export function MobileBottomNav() {
                   onClick={() => setIsProfileModalOpen(true)}
                   aria-haspopup="dialog"
                   title="プロフィールを完了するとイベントを作成できます。"
-                  className={`flex w-full flex-col items-center justify-center gap-1 text-[11px] font-semibold ${baseClass}`}
+                  className={`flex w-full flex-col items-center justify-center gap-1 text-[11px] font-semibold ${baseClass} ${disabledClass}`}
                 >
                   <span className="material-symbols-rounded text-[20px]">{item.icon}</span>
                   <span className="whitespace-nowrap leading-none">{item.label}</span>
