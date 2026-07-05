@@ -225,6 +225,14 @@ export default function AuthCallbackPage() {
       if (response.ok) {
         profile = (await response.json()) as ProfileResponse;
       } else {
+        const pendingInviteToken = (() => {
+          try {
+            return window.sessionStorage.getItem("pendingInviteToken");
+          } catch {
+            return null;
+          }
+        })();
+
         await fetch("/api/profiles", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -234,6 +242,7 @@ export default function AuthCallbackPage() {
             avatarIcon: lineDefaults.avatarIcon,
             birthDate: lineDefaults.birthDate,
             lineUserId,
+            inviteToken: pendingInviteToken ?? undefined,
           }),
         });
 
@@ -279,6 +288,12 @@ export default function AuthCallbackPage() {
 
       const redirectPath = eventReturnTo ?? "/profile/setup";
       markRecentAuth();
+      try {
+        window.sessionStorage.removeItem("pendingInviteToken");
+        window.sessionStorage.removeItem("pendingInviteRef");
+      } catch {
+        // ignore
+      }
       router.replace(redirectPath);
     };
 

@@ -49,7 +49,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const { id } = await params;
-  const body = (await request.json()) as { userId?: string };
+  const body = (await request.json()) as { userId?: string; inviteToken?: string };
 
   if (!body.userId) {
     return NextResponse.json({ message: "Missing userId" }, { status: 400 });
@@ -109,6 +109,28 @@ export async function POST(
     });
   }
 
+  // If user accessed via invite link (inviteToken), process the invite and create friendship
+  let inviterIdFromToken: string | null = null;
+  if (body.inviteToken) {
+    try {
+      const tokenInvite = await prisma.eventInvite.findUnique({
+        where: { token: body.inviteToken },
+      });
+      if (tokenInvite && tokenInvite.eventId === id && tokenInvite.inviterId !== body.userId) {
+        inviterIdFromToken = tokenInvite.inviterId;
+        // Update the invite to mark this user as invitee if not already set
+        if (!tokenInvite.inviteeId) {
+          await prisma.eventInvite.update({
+            where: { id: tokenInvite.id },
+            data: { inviteeId: body.userId, status: "accepted" },
+          });
+        }
+      }
+    } catch {
+      // Ignore invite token processing failures
+    }
+  }
+
   const participant = await prisma.eventParticipant.upsert({
     where: { eventId_userId: { eventId: id, userId: body.userId } },
     update: { status: nextStatus },
@@ -143,6 +165,21 @@ export async function POST(
 
   if (participant.status === "approved") {
     await syncApprovedEventFriendships(id);
+  }
+
+  // Create friendship with inviter if invite link was used
+  if (inviterIdFromToken) {
+    try {
+      await prisma.friendship.createMany({
+        data: [
+          { userId: body.userId, friendId: inviterIdFromToken, status: "pending" },
+          { userId: inviterIdFromToken, friendId: body.userId, status: "pending" },
+        ],
+        skipDuplicates: true,
+      });
+    } catch {
+      // Ignore friendship creation failures to not block event join
+    }
   }
 
   return NextResponse.json({ status: participant.status });
