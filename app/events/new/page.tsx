@@ -258,6 +258,8 @@ function EventCreatePageContent() {
   const [activeCandidates, setActiveCandidates] = useState<TimeCandidate[]>([]);
   const [suggestionPool, setSuggestionPool] = useState<TimeCandidate[]>([]);
   const [isSuggestionsLoading, setIsSuggestionsLoading] = useState(false);
+  const [isSuggestionsError, setIsSuggestionsError] = useState(false);
+  const [suggestionRetryCount, setSuggestionRetryCount] = useState(0);
   const [manualDateInput, setManualDateInput] = useState("");
   const [showManualDateInput, setShowManualDateInput] = useState(false);
   const [selectedPlace, setSelectedPlace] = useState<PlaceResult | null>(null);
@@ -426,38 +428,48 @@ function EventCreatePageContent() {
     if (timeSetting !== "candidates" || !userId) return;
     if (hasFetchedSuggestionsRef.current) return;
 
-    hasFetchedSuggestionsRef.current = true;
     let active = true;
     setIsSuggestionsLoading(true);
+    setIsSuggestionsError(false);
 
     const loadSuggestions = async () => {
-      const response = await fetch(
-        `/api/profiles/${encodeURIComponent(userId)}/time-suggestions`,
-        { cache: "no-store" }
-      );
-      if (!active) return;
-      if (response.ok) {
-        const data = (await response.json()) as {
-          defaults: { startTime: string; endTime: string }[];
-          suggestions: { startTime: string; endTime: string }[];
-        };
-        setActiveCandidates((prev) =>
-          prev.length === 0
-            ? data.defaults.map((c) => ({ id: generateId(), startTime: c.startTime, endTime: c.endTime }))
-            : prev
+      try {
+        const response = await fetch(
+          `/api/profiles/${encodeURIComponent(userId)}/time-suggestions`,
+          { cache: "no-store" }
         );
-        setSuggestionPool(
-          data.suggestions.map((c) => ({ id: generateId(), startTime: c.startTime, endTime: c.endTime }))
-        );
+        if (!active) return;
+        if (response.ok) {
+          const data = (await response.json()) as {
+            defaults: { startTime: string; endTime: string }[];
+            suggestions: { startTime: string; endTime: string }[];
+          };
+          hasFetchedSuggestionsRef.current = true;
+          setActiveCandidates((prev) =>
+            prev.length === 0
+              ? data.defaults.map((c) => ({ id: generateId(), startTime: c.startTime, endTime: c.endTime }))
+              : prev
+          );
+          setSuggestionPool(
+            data.suggestions.map((c) => ({ id: generateId(), startTime: c.startTime, endTime: c.endTime }))
+          );
+        } else {
+          if (!active) return;
+          setIsSuggestionsError(true);
+        }
+      } catch {
+        if (!active) return;
+        setIsSuggestionsError(true);
+      } finally {
+        if (active) setIsSuggestionsLoading(false);
       }
-      setIsSuggestionsLoading(false);
     };
 
     loadSuggestions();
     return () => {
       active = false;
     };
-  }, [timeSetting, userId]);
+  }, [timeSetting, userId, suggestionRetryCount]);
 
   useEffect(() => {
     if (!userId) {
@@ -1345,6 +1357,21 @@ function EventCreatePageContent() {
                       <p className="mb-2 text-xs font-semibold text-[var(--foreground)]">日程候補</p>
                       {isSuggestionsLoading ? (
                         <p className="text-xs text-[var(--muted)]">候補を取得中...</p>
+                      ) : isSuggestionsError ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-rose-500">
+                            日程候補の取得に失敗しました。提案候補が表示されない場合は、日程を手動で追加してください。
+                          </p>
+                          <button
+                            onClick={() => {
+                              setIsSuggestionsError(false);
+                              setSuggestionRetryCount((c) => c + 1);
+                            }}
+                            className="text-xs text-[var(--accent)] underline"
+                          >
+                            再試行する
+                          </button>
+                        </div>
                       ) : activeCandidates.length === 0 ? (
                         <p className="text-xs text-[var(--muted)]">
                           候補がありません。下の「提案候補」から選択するか、日程を手動追加してください。

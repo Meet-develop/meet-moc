@@ -294,6 +294,16 @@ export async function PATCH(
     return NextResponse.json({ message: "Missing ownerId" }, { status: 400 });
   }
 
+  if (
+    body.timeSetting === "candidates" &&
+    (!body.userTimeCandidates || body.userTimeCandidates.length === 0)
+  ) {
+    return NextResponse.json(
+      { message: "userTimeCandidates must not be empty when timeSetting is candidates" },
+      { status: 400 }
+    );
+  }
+
   const event = await prisma.event.findUnique({
     where: { id },
     include: {
@@ -522,23 +532,24 @@ export async function PATCH(
     });
   }
 
-  if (shouldDeleteTimeCandidates) {
-    await prisma.eventTimeCandidate.deleteMany({
-      where: { eventId: id },
+  if (shouldDeleteTimeCandidates && shouldReplaceWithUserCandidates && body.userTimeCandidates) {
+    const parsedCandidates = body.userTimeCandidates.slice(0, 10).map((c) => {
+      const start = new Date(c.startTime);
+      const end = new Date(c.endTime);
+      if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+        throw new Error(`Invalid date in userTimeCandidates: ${JSON.stringify(c)}`);
+      }
+      return { eventId: id, startTime: start, endTime: end, score: 0, source: "system" as const };
     });
+    await prisma.$transaction([
+      prisma.eventTimeCandidate.deleteMany({ where: { eventId: id } }),
+      prisma.eventTimeCandidate.createMany({ data: parsedCandidates }),
+    ]);
+  } else if (shouldDeleteTimeCandidates) {
+    await prisma.eventTimeCandidate.deleteMany({ where: { eventId: id } });
   }
 
-  if (shouldReplaceWithUserCandidates && body.userTimeCandidates) {
-    await prisma.eventTimeCandidate.createMany({
-      data: body.userTimeCandidates.slice(0, 10).map((c) => ({
-        eventId: id,
-        startTime: new Date(c.startTime),
-        endTime: new Date(c.endTime),
-        score: 0,
-        source: "system",
-      })),
-    });
-  } else if (shouldRegenerateTimeCandidates) {
+  if (shouldRegenerateTimeCandidates) {
     type ParticipantAvailabilitySource = { userId: string; status: string };
     type ProfileAvailabilitySource = { availability: unknown };
 

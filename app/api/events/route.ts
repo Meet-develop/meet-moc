@@ -368,6 +368,13 @@ export async function POST(request: Request) {
     );
   }
 
+  if (isTimeCandidates && (!body.userTimeCandidates || body.userTimeCandidates.length === 0)) {
+    return NextResponse.json(
+      { message: "userTimeCandidates must not be empty when timeSetting is candidates" },
+      { status: 400 }
+    );
+  }
+
   if (isPlaceManual && !body.fixedPlace) {
     return NextResponse.json(
       { message: "fixedPlace is required when placeSetting is manual" },
@@ -508,15 +515,15 @@ export async function POST(request: Request) {
   if (resolvedScheduleMode === "candidate") {
     if (!isTimeManual) {
       if (isTimeCandidates && body.userTimeCandidates && body.userTimeCandidates.length > 0) {
-        await prisma.eventTimeCandidate.createMany({
-          data: body.userTimeCandidates.slice(0, 10).map((c) => ({
-            eventId: event.id,
-            startTime: new Date(c.startTime),
-            endTime: new Date(c.endTime),
-            score: 0,
-            source: "system",
-          })),
+        const parsedCandidates = body.userTimeCandidates.slice(0, 10).map((c) => {
+          const start = new Date(c.startTime);
+          const end = new Date(c.endTime);
+          if (isNaN(start.getTime()) || isNaN(end.getTime())) {
+            throw new Error(`Invalid date in userTimeCandidates: ${JSON.stringify(c)}`);
+          }
+          return { eventId: event.id, startTime: start, endTime: end, score: 0, source: "system" as const };
         });
+        await prisma.eventTimeCandidate.createMany({ data: parsedCandidates });
       } else if (!isTimeCandidates) {
         let inviteeAvailabilities: unknown[] = [];
         if (inviteeIds.length > 0) {
