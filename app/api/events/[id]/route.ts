@@ -268,7 +268,7 @@ export async function PATCH(
     visibility?: "public" | "limited" | "private";
     capacity?: number;
     timeSetting?: "auto" | "candidates" | "manual";
-    placeSetting?: "auto" | "manual";
+    placeSetting?: "auto" | "candidates" | "manual";
     fixedStartTime?: string;
     fixedPlace?: {
       placeId?: string;
@@ -300,6 +300,17 @@ export async function PATCH(
   ) {
     return NextResponse.json(
       { message: "userTimeCandidates must not be empty when timeSetting is candidates" },
+      { status: 400 }
+    );
+  }
+
+  if (
+    body.placeSetting === "candidates" &&
+    body.candidatePlaces !== undefined &&
+    body.candidatePlaces.length === 0
+  ) {
+    return NextResponse.json(
+      { message: "candidatePlaces must not be empty when placeSetting is candidates" },
       { status: 400 }
     );
   }
@@ -340,7 +351,9 @@ export async function PATCH(
     body.timeSetting === "candidates" ||
     body.timeSetting === "manual";
   const hasPlaceSetting =
-    body.placeSetting === "auto" || body.placeSetting === "manual";
+    body.placeSetting === "auto" ||
+    body.placeSetting === "candidates" ||
+    body.placeSetting === "manual";
   const hasFixedPlacePayload = body.fixedPlace !== undefined;
 
   const currentTimeSetting: "auto" | "manual" = event.fixedStartTime
@@ -433,11 +446,17 @@ export async function PATCH(
     shouldRegenerateTimeCandidates ||
     shouldReplaceWithUserCandidates;
 
+  const isPlaceCandidatesMode = body.placeSetting === "candidates";
   const shouldRegeneratePlaceCandidates =
     nextPlaceSetting === "auto" &&
     (currentPlaceSetting === "manual" || event.placeCandidates.length === 0);
+  const shouldReplaceWithUserPlaceCandidates =
+    isPlaceCandidatesMode &&
+    body.candidatePlaces != null &&
+    body.candidatePlaces.length > 0;
 
-  let shouldDeletePlaceCandidates = shouldRegeneratePlaceCandidates;
+  let shouldDeletePlaceCandidates =
+    shouldRegeneratePlaceCandidates || shouldReplaceWithUserPlaceCandidates;
 
   if (hasPlaceSetting && body.placeSetting === "manual") {
     const sourceFixedPlace =
@@ -475,7 +494,10 @@ export async function PATCH(
     if (currentPlaceSetting !== "manual" || fixedPlaceChanged) {
       shouldDeletePlaceCandidates = true;
     }
-  } else if (hasPlaceSetting && body.placeSetting === "auto") {
+  } else if (
+    hasPlaceSetting &&
+    (body.placeSetting === "auto" || body.placeSetting === "candidates")
+  ) {
     if (currentPlaceSetting === "manual") {
       updateData.fixedPlaceId = null;
       updateData.fixedPlaceName = null;
@@ -526,7 +548,23 @@ export async function PATCH(
     }
   }
 
-  if (shouldDeletePlaceCandidates) {
+  if (shouldDeletePlaceCandidates && shouldReplaceWithUserPlaceCandidates && body.candidatePlaces) {
+    const parsedPlaceCandidates = body.candidatePlaces.slice(0, 5).map((c) => ({
+      eventId: id,
+      placeId: c.placeId,
+      name: c.name,
+      address: c.address,
+      lat: c.lat,
+      lng: c.lng,
+      priceLevel: c.priceLevel,
+      score: 0,
+      source: "system" as const,
+    }));
+    await prisma.$transaction([
+      prisma.eventPlaceCandidate.deleteMany({ where: { eventId: id } }),
+      prisma.eventPlaceCandidate.createMany({ data: parsedPlaceCandidates }),
+    ]);
+  } else if (shouldDeletePlaceCandidates) {
     await prisma.eventPlaceCandidate.deleteMany({
       where: { eventId: id },
     });

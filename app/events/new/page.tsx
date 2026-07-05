@@ -59,9 +59,10 @@ type EventUpdateComparable = {
   visibility: "public" | "limited" | "private";
   capacity: number;
   timeSetting: "auto" | "candidates" | "manual";
-  placeSetting: "auto" | "manual";
+  placeSetting: "auto" | "candidates" | "manual";
   fixedStartTime: string | null;
   candidateStartTimes: string;
+  candidatePlaceIds: string;
   fixedPlace: {
     placeId: string;
     name: string;
@@ -114,13 +115,14 @@ const timeSettingOptions: Array<{
 ];
 
 const placeSettingOptions: Array<{
-  value: "auto" | "manual";
+  value: "auto" | "candidates" | "manual";
   label: string;
   caption: string;
   recommended?: boolean;
 }> = [
   { value: "auto", label: "おまかせ", caption: "候補を自動提案", recommended: true },
-  { value: "manual", label: "設定する", caption: "自分で確定" },
+  { value: "candidates", label: "場所候補を設定する", caption: "場所の選択肢を手動で追加" },
+  { value: "manual", label: "固定", caption: "既に確定している場所を設定" },
 ];
 
 const plusButtonClass =
@@ -191,6 +193,12 @@ const buildComparableFromEvent = (event: EventEditResponse): EventUpdateComparab
       ? "candidates"
       : "auto";
 
+  const resolvedPlaceSetting: "auto" | "candidates" | "manual" = hasFixedPlace
+    ? "manual"
+    : (event.placeCandidates?.length ?? 0) > 0
+      ? "candidates"
+      : "auto";
+
   return {
     purpose: toComparableText(event.purpose),
     comment: toComparableText(event.comment),
@@ -198,9 +206,10 @@ const buildComparableFromEvent = (event: EventEditResponse): EventUpdateComparab
     visibility: event.visibility,
     capacity: normalizeCapacity(event.capacity),
     timeSetting: resolvedTimeSetting,
-    placeSetting: hasFixedPlace ? "manual" : "auto",
+    placeSetting: resolvedPlaceSetting,
     fixedStartTime: hasFixedStart ? toDatetimeLocalValue(event.fixedStartTime) : null,
     candidateStartTimes: [...event.timeCandidates.map((c) => c.startTime)].sort().join(","),
+    candidatePlaceIds: [...(event.placeCandidates ?? []).map((p) => p.placeId)].sort().join(","),
     fixedPlace: hasFixedPlace
       ? {
           placeId: toComparableText(event.fixedPlaceId),
@@ -253,7 +262,7 @@ function EventCreatePageContent() {
   const [areaMessage, setAreaMessage] = useState<string | null>(null);
 
   const [timeSetting, setTimeSetting] = useState<"auto" | "candidates" | "manual">("auto");
-  const [placeSetting, setPlaceSetting] = useState<"auto" | "manual">("auto");
+  const [placeSetting, setPlaceSetting] = useState<"auto" | "candidates" | "manual">("auto");
   const [fixedStart, setFixedStart] = useState("");
   const [activeCandidates, setActiveCandidates] = useState<TimeCandidate[]>([]);
   const [suggestionPool, setSuggestionPool] = useState<TimeCandidate[]>([]);
@@ -405,12 +414,16 @@ function EventCreatePageContent() {
           lat: 0,
           lng: 0,
         });
+        setCandidatePlaces([]);
+      } else if ((event.placeCandidates?.length ?? 0) > 0) {
+        setPlaceSetting("candidates");
+        setSelectedPlace(null);
+        setCandidatePlaces(event.placeCandidates ?? []);
       } else {
         setPlaceSetting("auto");
         setSelectedPlace(null);
+        setCandidatePlaces([]);
       }
-
-      setCandidatePlaces(event.placeCandidates ?? []);
       setEventComment(event.comment?.trim() ?? "");
       setInitialEditComparable(serializeComparable(buildComparableFromEvent(event)));
       setSubmitMessage(null);
@@ -527,7 +540,12 @@ function EventCreatePageContent() {
       : timeSetting === "candidates"
         ? allUserTimeCandidates.length > 0
         : true;
-  const isPlaceManualValid = placeSetting === "manual" ? Boolean(selectedPlace) : true;
+  const isPlaceManualValid =
+    placeSetting === "manual"
+      ? Boolean(selectedPlace)
+      : placeSetting === "candidates"
+        ? candidatePlaces.length > 0
+        : true;
   const derivedScheduleMode: "fixed" | "candidate" =
     timeSetting === "manual" && placeSetting === "manual" ? "fixed" : "candidate";
   const isProfileComplete = profileCompletionRate >= 100;
@@ -546,6 +564,10 @@ function EventCreatePageContent() {
         timeSetting === "candidates"
           ? [...activeCandidates.map((c) => c.startTime)].sort().join(",")
           : "",
+      candidatePlaceIds:
+        placeSetting === "candidates"
+          ? [...candidatePlaces.map((p) => p.placeId)].sort().join(",")
+          : "",
       fixedPlace:
         placeSetting === "manual" && selectedPlace
           ? {
@@ -555,7 +577,7 @@ function EventCreatePageContent() {
             }
           : null,
     }),
-    [activeCandidates, capacity, eventComment, fixedStart, placeSetting, resolvedTitle, selectedEventArea, selectedPlace, timeSetting, visibility]
+    [activeCandidates, candidatePlaces, capacity, eventComment, fixedStart, placeSetting, resolvedTitle, selectedEventArea, selectedPlace, timeSetting, visibility]
   );
 
   const hasEditChanges = useMemo(() => {
@@ -584,17 +606,26 @@ function EventCreatePageContent() {
     if (timeSetting === "manual" && placeSetting === "manual") {
       return "日程と場所を固定して作成します。";
     }
+    if (timeSetting === "manual" && placeSetting === "candidates") {
+      return "日程は固定し、場所候補から参加者と場所を決定します。";
+    }
     if (timeSetting === "manual") {
       return "日程は固定し、場所は候補から決定します。";
     }
     if (timeSetting === "candidates" && placeSetting === "manual") {
       return "日程候補を設定し、場所は固定して作成します。";
     }
+    if (timeSetting === "candidates" && placeSetting === "candidates") {
+      return "日程候補・場所候補から参加者と確定します。";
+    }
     if (timeSetting === "candidates") {
       return "日程候補から参加者と日程を決定します。";
     }
     if (placeSetting === "manual") {
       return "場所は固定し、日程は候補から決定します。";
+    }
+    if (placeSetting === "candidates") {
+      return "場所候補を設定し、日程は候補から決定します。";
     }
     return "日程と場所は候補から決定されます。";
   }, [placeSetting, timeSetting]);
@@ -826,7 +857,7 @@ function EventCreatePageContent() {
             : undefined,
         eventArea: selectedEventArea,
         placeQuery: placeSetting === "auto" && placeQuery.trim() ? placeQuery : undefined,
-        candidatePlaces: placeSetting === "auto" ? candidatePlaces : undefined,
+        candidatePlaces: placeSetting === "candidates" ? candidatePlaces : undefined,
         inviteeIds: selectedInvites,
       };
 
@@ -1507,9 +1538,213 @@ function EventCreatePageContent() {
 
             {(!isFocusMode || capacityTouched) && (
               <section className="rounded-3xl bg-white p-4 shadow-sm">
+                <h2 className="text-sm font-semibold">場所の設定</h2>
+                <p className="mt-1 text-xs text-[var(--muted)]">
+                  場所の決め方を選択してください。
+                </p>
+                <div className="mt-3 space-y-2">
+                  {placeSettingOptions.map((mode) => (
+                    <button
+                      key={`place-${mode.value}`}
+                      onClick={() => setPlaceSetting(mode.value)}
+                      className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left ${
+                        placeSetting === mode.value
+                          ? "bg-orange-50 shadow-md"
+                          : "bg-white shadow-sm"
+                      }`}
+                    >
+                      <div>
+                        <p className="text-sm font-semibold">{mode.label}</p>
+                        <p className="text-xs text-[var(--muted)]">{mode.caption}</p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {mode.recommended && (
+                          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                            推奨
+                          </span>
+                        )}
+                        <span className="text-xs font-semibold text-[var(--muted)]">
+                          {placeSetting === mode.value ? "選択中" : "未選択"}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+
+                {placeSetting === "candidates" && (
+                  <div className="mt-4 space-y-4">
+                    {/* 場所候補リスト */}
+                    <div>
+                      <p className="mb-2 text-xs font-semibold text-[var(--foreground)]">場所候補</p>
+                      {candidatePlaces.length === 0 ? (
+                        <>
+                          <p className="text-xs text-[var(--muted)]">
+                            場所を検索して候補に追加してください。
+                          </p>
+                          <p className="mt-1 text-xs text-rose-500">候補を1件以上追加してください。</p>
+                        </>
+                      ) : (
+                        <div className="space-y-2">
+                          {candidatePlaces.map((place) => (
+                            <div
+                              key={place.placeId}
+                              className="flex items-center gap-3 rounded-2xl bg-orange-50 px-4 py-3 shadow-sm"
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold">{place.name}</p>
+                                <p className="mt-1 truncate text-xs text-[var(--muted)]">{place.address}</p>
+                              </div>
+                              <button
+                                onClick={() => toggleCandidatePlace(place)}
+                                className="grid h-6 w-6 flex-shrink-0 place-items-center rounded-full bg-white text-[var(--muted)] shadow-sm"
+                                aria-label="削除"
+                              >
+                                <span className="material-symbols-rounded text-sm">close</span>
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* 場所検索 */}
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        value={placeQuery}
+                        onChange={(event) => setPlaceQuery(event.target.value)}
+                        placeholder="例: 恵比寿 イタリアン"
+                        className="flex-1 rounded-full bg-white px-4 py-2 text-sm shadow-sm"
+                      />
+                      <button
+                        onClick={handleSearchPlaces}
+                        className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
+                      >
+                        <span className="material-symbols-rounded">search</span>
+                        検索
+                      </button>
+                    </div>
+                    {searchMessage && <p className="text-xs text-[var(--muted)]">{searchMessage}</p>}
+                    {isSearching && <p className="text-xs text-[var(--muted)]">検索中...</p>}
+
+                    {!isSearching && placeResults.length > 0 && (
+                      <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                        {placeResults.map((place) => {
+                          const selected = candidatePlaces.some((item) => item.placeId === place.placeId);
+                          const isFull = candidatePlaces.length >= 5;
+                          return (
+                            <div
+                              key={place.placeId}
+                              className={`rounded-2xl px-4 py-3 ${
+                                selected ? "bg-orange-50 shadow-md" : "bg-white shadow-sm"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <Image
+                                  src={place.photoUrl ?? "/file.svg"}
+                                  alt={`${place.name} の写真`}
+                                  width={48}
+                                  height={48}
+                                  className="h-12 w-12 rounded-xl object-cover"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold">{place.name}</p>
+                                  <p className="mt-1 truncate text-xs text-[var(--muted)]">{place.address}</p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => toggleCandidatePlace(place)}
+                                disabled={!selected && isFull}
+                                className={`mt-2 w-full rounded-full px-4 py-2 text-xs font-semibold ${
+                                  selected
+                                    ? "bg-orange-100 text-[var(--accent)]"
+                                    : isFull
+                                      ? "cursor-not-allowed bg-gray-100 text-gray-400 opacity-50"
+                                      : "bg-orange-100 text-[var(--accent)]"
+                                }`}
+                              >
+                                {selected ? "選択中" : isFull ? "上限に達しました" : "候補に追加"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {placeSetting === "manual" && (
+                  <div className="mt-4 space-y-3">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <input
+                        value={placeQuery}
+                        onChange={(event) => setPlaceQuery(event.target.value)}
+                        placeholder="例: 恵比寿 イタリアン"
+                        className="flex-1 rounded-full bg-white px-4 py-2 text-sm shadow-sm"
+                      />
+                      <button
+                        onClick={handleSearchPlaces}
+                        className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
+                      >
+                        <span className="material-symbols-rounded">search</span>
+                        検索
+                      </button>
+                    </div>
+                    {searchMessage && <p className="text-xs text-[var(--muted)]">{searchMessage}</p>}
+                    {isSearching && <p className="text-xs text-[var(--muted)]">検索中...</p>}
+
+                    {!isSearching && placeResults.length > 0 && (
+                      <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+                        {placeResults.map((place) => {
+                          const selected = selectedPlace?.placeId === place.placeId;
+                          return (
+                            <div
+                              key={place.placeId}
+                              className={`rounded-2xl px-4 py-3 ${
+                                selected ? "bg-orange-50 shadow-md" : "bg-white shadow-sm"
+                              }`}
+                            >
+                              <div className="flex items-center gap-3">
+                                <Image
+                                  src={place.photoUrl ?? "/file.svg"}
+                                  alt={`${place.name} の写真`}
+                                  width={48}
+                                  height={48}
+                                  className="h-12 w-12 rounded-xl object-cover"
+                                />
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-sm font-semibold">{place.name}</p>
+                                  <p className="mt-1 truncate text-xs text-[var(--muted)]">{place.address}</p>
+                                </div>
+                              </div>
+                              <button
+                                onClick={() => setSelectedPlace(place)}
+                                className="mt-2 w-full rounded-full bg-orange-100 px-4 py-2 text-xs font-semibold text-[var(--accent)]"
+                              >
+                                {selected ? "選択中" : "この場所で固定"}
+                              </button>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {selectedPlace && (
+                      <div className="rounded-2xl bg-orange-50 p-3 shadow-sm">
+                        <p className="text-xs text-[var(--muted)]">固定する場所</p>
+                        <p className="text-sm font-semibold">{selectedPlace.name}</p>
+                        <p className="text-xs text-[var(--muted)]">{selectedPlace.address}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </section>
+            )}
+
+            {(!isFocusMode || capacityTouched) && (
+              <section className="rounded-3xl bg-white p-4 shadow-sm">
                 <h2 className="text-sm font-semibold">詳細設定（任意）</h2>
                 <p className="mt-1 text-xs text-[var(--muted)]">
-                  場所を手動設定したい場合のみ選択してください。
+                  コメントなど補足情報を入力してください。
                 </p>
 
                 <label className="mt-4 block text-sm">
@@ -1521,108 +1756,6 @@ function EventCreatePageContent() {
                     className="mt-2 h-24 w-full rounded-2xl bg-white px-4 py-3 text-sm shadow-sm"
                   />
                 </label>
-
-                <div className="mt-5">
-                  <p className="mb-2 text-sm font-medium">場所の設定</p>
-                  <div className="space-y-2">
-                    {placeSettingOptions.map((mode) => (
-                      <button
-                        key={`place-${mode.value}`}
-                        onClick={() => setPlaceSetting(mode.value)}
-                        className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left ${
-                          placeSetting === mode.value
-                            ? "bg-orange-50 shadow-md"
-                            : "bg-white shadow-sm"
-                        }`}
-                      >
-                        <div>
-                          <p className="text-sm font-semibold">{mode.label}</p>
-                          <p className="text-xs text-[var(--muted)]">{mode.caption}</p>
-                        </div>
-                        <div className="flex items-center gap-2">
-                          {mode.recommended && (
-                            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                              推奨
-                            </span>
-                          )}
-                          <span className="text-xs font-semibold text-[var(--muted)]">
-                            {placeSetting === mode.value ? "選択中" : "未選択"}
-                          </span>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
-
-                  <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                    <input
-                      value={placeQuery}
-                      onChange={(event) => setPlaceQuery(event.target.value)}
-                      placeholder="例: 恵比寿 イタリアン"
-                      className="flex-1 rounded-full bg-white px-4 py-2 text-sm shadow-sm"
-                    />
-                    <button
-                      onClick={handleSearchPlaces}
-                      className="flex w-full items-center justify-center gap-2 rounded-full bg-[var(--accent)] px-4 py-2 text-xs font-semibold text-white sm:w-auto"
-                    >
-                      <span className="material-symbols-rounded">search</span>
-                      検索
-                    </button>
-                  </div>
-
-                  {searchMessage && <p className="mt-2 text-xs text-[var(--muted)]">{searchMessage}</p>}
-                  {isSearching && <p className="mt-2 text-xs text-[var(--muted)]">検索中...</p>}
-
-                  {!isSearching && placeResults.length > 0 && (
-                    <div className="mt-3 max-h-72 space-y-2 overflow-y-auto pr-1">
-                      {placeResults.map((place) => {
-                        const selectedInFixed = selectedPlace?.placeId === place.placeId;
-                        const selectedInCandidate = candidatePlaces.some((item) => item.placeId === place.placeId);
-                        const selected = placeSetting === "manual" ? selectedInFixed : selectedInCandidate;
-
-                        return (
-                          <div
-                            key={place.placeId}
-                            className={`rounded-2xl px-4 py-3 ${
-                              selected ? "bg-orange-50 shadow-md" : "bg-white shadow-sm"
-                            }`}
-                          >
-                            <div className="flex items-center gap-3">
-                              <Image
-                                src={place.photoUrl ?? "/file.svg"}
-                                alt={`${place.name} の写真`}
-                                width={48}
-                                height={48}
-                                className="h-12 w-12 rounded-xl object-cover"
-                              />
-                              <div className="min-w-0 flex-1">
-                                <p className="truncate text-sm font-semibold">{place.name}</p>
-                                <p className="mt-1 truncate text-xs text-[var(--muted)]">{place.address}</p>
-                              </div>
-                            </div>
-                            <button
-                              onClick={() =>
-                                placeSetting === "manual"
-                                  ? setSelectedPlace(place)
-                                  : toggleCandidatePlace(place)
-                              }
-                              className="mt-2 w-full rounded-full bg-orange-100 px-4 py-2 text-xs font-semibold text-[var(--accent)]"
-                            >
-                              {selected ? "選択中" : placeSetting === "manual" ? "この場所で固定" : "候補に追加"}
-                            </button>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  )}
-
-                  {placeSetting === "manual" && selectedPlace && (
-                    <div className="mt-3 rounded-2xl bg-orange-50 p-3 shadow-sm">
-                      <p className="text-xs text-[var(--muted)]">固定する場所</p>
-                      <p className="text-sm font-semibold">{selectedPlace.name}</p>
-                      <p className="text-xs text-[var(--muted)]">{selectedPlace.address}</p>
-                    </div>
-                  )}
-                </div>
               </section>
             )}
           </div>
