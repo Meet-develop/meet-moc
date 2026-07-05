@@ -306,8 +306,7 @@ export async function PATCH(
 
   if (
     body.placeSetting === "candidates" &&
-    body.candidatePlaces !== undefined &&
-    body.candidatePlaces.length === 0
+    (!body.candidatePlaces || body.candidatePlaces.length === 0)
   ) {
     return NextResponse.json(
       { message: "candidatePlaces must not be empty when placeSetting is candidates" },
@@ -548,7 +547,15 @@ export async function PATCH(
     }
   }
 
-  if (shouldDeletePlaceCandidates && shouldReplaceWithUserPlaceCandidates && body.candidatePlaces) {
+  if (shouldReplaceWithUserPlaceCandidates && body.candidatePlaces) {
+    for (const c of body.candidatePlaces.slice(0, 5)) {
+      if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) {
+        return NextResponse.json(
+          { message: `場所「${c.name}」の座標が不正です。再度検索してから追加してください。` },
+          { status: 400 }
+        );
+      }
+    }
     const parsedPlaceCandidates = body.candidatePlaces.slice(0, 5).map((c) => ({
       eventId: id,
       placeId: c.placeId,
@@ -560,10 +567,17 @@ export async function PATCH(
       score: 0,
       source: "system" as const,
     }));
-    await prisma.$transaction([
-      prisma.eventPlaceCandidate.deleteMany({ where: { eventId: id } }),
-      prisma.eventPlaceCandidate.createMany({ data: parsedPlaceCandidates }),
-    ]);
+    try {
+      await prisma.$transaction([
+        prisma.eventPlaceCandidate.deleteMany({ where: { eventId: id } }),
+        prisma.eventPlaceCandidate.createMany({ data: parsedPlaceCandidates }),
+      ]);
+    } catch {
+      return NextResponse.json(
+        { message: "場所候補の保存に失敗しました。再度お試しください。" },
+        { status: 500 }
+      );
+    }
   } else if (shouldDeletePlaceCandidates) {
     await prisma.eventPlaceCandidate.deleteMany({
       where: { eventId: id },

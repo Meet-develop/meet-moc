@@ -208,8 +208,14 @@ const buildComparableFromEvent = (event: EventEditResponse): EventUpdateComparab
     timeSetting: resolvedTimeSetting,
     placeSetting: resolvedPlaceSetting,
     fixedStartTime: hasFixedStart ? toDatetimeLocalValue(event.fixedStartTime) : null,
-    candidateStartTimes: [...event.timeCandidates.map((c) => c.startTime)].sort().join(","),
-    candidatePlaceIds: [...(event.placeCandidates ?? []).map((p) => p.placeId)].sort().join(","),
+    candidateStartTimes:
+      resolvedTimeSetting === "candidates"
+        ? [...event.timeCandidates.map((c) => c.startTime)].sort().join(",")
+        : "",
+    candidatePlaceIds:
+      resolvedPlaceSetting === "candidates"
+        ? [...(event.placeCandidates ?? []).map((p) => p.placeId)].sort().join(",")
+        : "",
     fixedPlace: hasFixedPlace
       ? {
           placeId: toComparableText(event.fixedPlaceId),
@@ -1546,7 +1552,14 @@ function EventCreatePageContent() {
                   {placeSettingOptions.map((mode) => (
                     <button
                       key={`place-${mode.value}`}
-                      onClick={() => setPlaceSetting(mode.value)}
+                      onClick={() => {
+                        setPlaceSetting(mode.value);
+                        if (mode.value === "auto") {
+                          setPlaceQuery("");
+                          setPlaceResults([]);
+                          setSearchMessage(null);
+                        }
+                      }}
                       className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left ${
                         placeSetting === mode.value
                           ? "bg-orange-50 shadow-md"
