@@ -269,6 +269,10 @@ function EventCreatePageContent() {
 
   const [timeSetting, setTimeSetting] = useState<"auto" | "candidates" | "manual">("auto");
   const [placeSetting, setPlaceSetting] = useState<"auto" | "candidates" | "manual">("auto");
+  const [placeSuggestionPool, setPlaceSuggestionPool] = useState<PlaceResult[]>([]);
+  const [isPlaceSuggestionsLoading, setIsPlaceSuggestionsLoading] = useState(false);
+  const [isPlaceSuggestionsError, setIsPlaceSuggestionsError] = useState(false);
+  const [placeSuggestionRetryCount, setPlaceSuggestionRetryCount] = useState(0);
   const [fixedStart, setFixedStart] = useState("");
   const [activeCandidates, setActiveCandidates] = useState<TimeCandidate[]>([]);
   const [suggestionPool, setSuggestionPool] = useState<TimeCandidate[]>([]);
@@ -297,6 +301,7 @@ function EventCreatePageContent() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const submitLockRef = useRef(false);
   const hasFetchedSuggestionsRef = useRef(false);
+  const lastFetchedPlaceSuggestionKeyRef = useRef<string | null>(null);
 
   const purposeSectionRef = useRef<HTMLElement | null>(null);
   const visibilitySectionRef = useRef<HTMLElement | null>(null);
@@ -491,6 +496,52 @@ function EventCreatePageContent() {
   }, [timeSetting, userId, suggestionRetryCount]);
 
   useEffect(() => {
+    if (placeSetting !== "candidates" || !userId) return;
+
+    const fetchKey = `${effectivePlacePurpose}|${selectedEventArea}`;
+    if (lastFetchedPlaceSuggestionKeyRef.current === fetchKey) return;
+
+    let active = true;
+    setIsPlaceSuggestionsLoading(true);
+    setIsPlaceSuggestionsError(false);
+
+    const loadPlaceSuggestions = async () => {
+      try {
+        const params = new URLSearchParams({ purpose: effectivePlacePurpose });
+        if (selectedEventArea) params.set("eventArea", selectedEventArea);
+
+        const response = await fetch(
+          `/api/profiles/${encodeURIComponent(userId)}/place-suggestions?${params}`,
+          { cache: "no-store" }
+        );
+        if (!active) return;
+        if (response.ok) {
+          const data = (await response.json()) as {
+            defaults: PlaceResult[];
+            suggestions: PlaceResult[];
+          };
+          lastFetchedPlaceSuggestionKeyRef.current = fetchKey;
+          setCandidatePlaces((prev) => (prev.length === 0 ? data.defaults : prev));
+          setPlaceSuggestionPool(data.suggestions);
+        } else {
+          if (!active) return;
+          setIsPlaceSuggestionsError(true);
+        }
+      } catch {
+        if (!active) return;
+        setIsPlaceSuggestionsError(true);
+      } finally {
+        if (active) setIsPlaceSuggestionsLoading(false);
+      }
+    };
+
+    loadPlaceSuggestions();
+    return () => {
+      active = false;
+    };
+  }, [placeSetting, userId, effectivePlacePurpose, selectedEventArea, placeSuggestionRetryCount]);
+
+  useEffect(() => {
     if (!userId) {
       setFriends([]);
       return;
@@ -519,6 +570,11 @@ function EventCreatePageContent() {
     [customPurposeOptions]
   );
 
+  const effectivePlacePurpose = useMemo(
+    () => (purposeElements.length > 0 ? purposeElements.join(" ") : "飲み"),
+    [purposeElements]
+  );
+
   const autoTitle = useMemo(() => buildAutoTitle(purposeElements), [purposeElements]);
   const previousAutoTitleRef = useRef(autoTitle);
   const resolvedTitle = eventTitleInput.trim();
@@ -539,6 +595,8 @@ function EventCreatePageContent() {
 
   const MAX_TIME_CANDIDATES = 5;
   const isCandidateFull = activeCandidates.length >= MAX_TIME_CANDIDATES;
+  const MAX_PLACE_CANDIDATES = 5;
+  const isPlaceCandidateFull = candidatePlaces.length >= MAX_PLACE_CANDIDATES;
 
   const isTimeManualValid =
     timeSetting === "manual"
@@ -1586,16 +1644,30 @@ function EventCreatePageContent() {
 
                 {placeSetting === "candidates" && (
                   <div className="mt-4 space-y-4">
-                    {/* 場所候補リスト */}
+                    {/* 場所候補 */}
                     <div>
                       <p className="mb-2 text-xs font-semibold text-[var(--foreground)]">場所候補</p>
-                      {candidatePlaces.length === 0 ? (
-                        <>
-                          <p className="text-xs text-[var(--muted)]">
-                            場所を検索して候補に追加してください。
+                      {isPlaceSuggestionsLoading ? (
+                        <p className="text-xs text-[var(--muted)]">候補を取得中...</p>
+                      ) : isPlaceSuggestionsError ? (
+                        <div className="space-y-2">
+                          <p className="text-xs text-rose-500">
+                            場所候補の取得に失敗しました。下の検索から手動で追加してください。
                           </p>
-                          <p className="mt-1 text-xs text-rose-500">候補を1件以上追加してください。</p>
-                        </>
+                          <button
+                            onClick={() => {
+                              setIsPlaceSuggestionsError(false);
+                              setPlaceSuggestionRetryCount((c) => c + 1);
+                            }}
+                            className="text-xs text-[var(--accent)] underline"
+                          >
+                            再試行する
+                          </button>
+                        </div>
+                      ) : candidatePlaces.length === 0 ? (
+                        <p className="text-xs text-[var(--muted)]">
+                          候補がありません。下の「提案候補」から選択するか、場所を検索してください。
+                        </p>
                       ) : (
                         <div className="space-y-2">
                           {candidatePlaces.map((place) => (
@@ -1618,9 +1690,50 @@ function EventCreatePageContent() {
                           ))}
                         </div>
                       )}
+                      {candidatePlaces.length === 0 && !isPlaceSuggestionsLoading && (
+                        <p className="mt-1 text-xs text-rose-500">候補を1件以上追加してください。</p>
+                      )}
                     </div>
 
-                    {/* 場所検索 */}
+                    {/* 提案候補 */}
+                    {!isPlaceSuggestionsLoading && placeSuggestionPool.length > 0 && (
+                      <div>
+                        <p className="mb-2 text-xs font-semibold text-[var(--foreground)]">提案候補</p>
+                        {isPlaceCandidateFull && (
+                          <p className="mb-2 text-xs text-[var(--muted)]">
+                            場所候補が{MAX_PLACE_CANDIDATES}件に達したため追加できません。
+                          </p>
+                        )}
+                        <div className="space-y-2">
+                          {placeSuggestionPool.map((place) => (
+                            <button
+                              key={place.placeId}
+                              disabled={isPlaceCandidateFull}
+                              onClick={() => {
+                                if (isPlaceCandidateFull) return;
+                                setPlaceSuggestionPool((prev) =>
+                                  prev.filter((p) => p.placeId !== place.placeId)
+                                );
+                                setCandidatePlaces((prev) => [...prev, place]);
+                              }}
+                              className={`flex w-full items-center justify-between rounded-2xl px-4 py-3 text-left shadow-sm ${
+                                isPlaceCandidateFull
+                                  ? "cursor-not-allowed bg-gray-50 opacity-50"
+                                  : "bg-white"
+                              }`}
+                            >
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate text-sm font-semibold">{place.name}</p>
+                                <p className="mt-1 truncate text-xs text-[var(--muted)]">{place.address}</p>
+                              </div>
+                              <span className="material-symbols-rounded ml-2 flex-shrink-0 text-sm text-[var(--muted)]">add</span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 場所検索（手動追加） */}
                     <div className="flex flex-col gap-2 sm:flex-row">
                       <input
                         value={placeQuery}
@@ -1643,7 +1756,6 @@ function EventCreatePageContent() {
                       <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
                         {placeResults.map((place) => {
                           const selected = candidatePlaces.some((item) => item.placeId === place.placeId);
-                          const isFull = candidatePlaces.length >= 5;
                           return (
                             <div
                               key={place.placeId}
@@ -1666,16 +1778,16 @@ function EventCreatePageContent() {
                               </div>
                               <button
                                 onClick={() => toggleCandidatePlace(place)}
-                                disabled={!selected && isFull}
+                                disabled={!selected && isPlaceCandidateFull}
                                 className={`mt-2 w-full rounded-full px-4 py-2 text-xs font-semibold ${
                                   selected
                                     ? "bg-orange-100 text-[var(--accent)]"
-                                    : isFull
+                                    : isPlaceCandidateFull
                                       ? "cursor-not-allowed bg-gray-100 text-gray-400 opacity-50"
                                       : "bg-orange-100 text-[var(--accent)]"
                                 }`}
                               >
-                                {selected ? "選択中" : isFull ? "上限に達しました" : "候補に追加"}
+                                {selected ? "選択中" : isPlaceCandidateFull ? "上限に達しました" : "候補に追加"}
                               </button>
                             </div>
                           );
