@@ -320,7 +320,7 @@ export async function POST(request: Request) {
     capacity?: number;
     scheduleMode?: "fixed" | "candidate";
     timeSetting?: "auto" | "candidates" | "manual";
-    placeSetting?: "auto" | "manual";
+    placeSetting?: "auto" | "candidates" | "manual";
     fixedStartTime?: string;
     fixedPlace?: {
       placeId: string;
@@ -358,6 +358,7 @@ export async function POST(request: Request) {
   const isPlaceManual = body.placeSetting
     ? body.placeSetting === "manual"
     : legacyFixed;
+  const isPlaceCandidates = body.placeSetting === "candidates";
   const resolvedScheduleMode =
     isTimeManual && isPlaceManual ? "fixed" : "candidate";
 
@@ -371,6 +372,13 @@ export async function POST(request: Request) {
   if (isTimeCandidates && (!body.userTimeCandidates || body.userTimeCandidates.length === 0)) {
     return NextResponse.json(
       { message: "userTimeCandidates must not be empty when timeSetting is candidates" },
+      { status: 400 }
+    );
+  }
+
+  if (isPlaceCandidates && (!body.candidatePlaces || body.candidatePlaces.length === 0)) {
+    return NextResponse.json(
+      { message: "candidatePlaces must not be empty when placeSetting is candidates" },
       { status: 400 }
     );
   }
@@ -560,6 +568,14 @@ export async function POST(request: Request) {
 
     if (!isPlaceManual) {
       if (body.candidatePlaces && body.candidatePlaces.length > 0) {
+        for (const c of body.candidatePlaces.slice(0, 5)) {
+          if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) {
+            return NextResponse.json(
+              { message: `場所「${c.name}」の座標が不正です。再度検索してから追加してください。` },
+              { status: 400 }
+            );
+          }
+        }
         await prisma.eventPlaceCandidate.createMany({
           data: body.candidatePlaces.slice(0, 5).map((candidate: any) => ({
             eventId: event.id,

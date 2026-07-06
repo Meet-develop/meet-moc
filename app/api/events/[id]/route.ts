@@ -268,7 +268,7 @@ export async function PATCH(
     visibility?: "public" | "limited" | "private";
     capacity?: number;
     timeSetting?: "auto" | "candidates" | "manual";
-    placeSetting?: "auto" | "manual";
+    placeSetting?: "auto" | "candidates" | "manual";
     fixedStartTime?: string;
     fixedPlace?: {
       placeId?: string;
@@ -300,6 +300,16 @@ export async function PATCH(
   ) {
     return NextResponse.json(
       { message: "userTimeCandidates must not be empty when timeSetting is candidates" },
+      { status: 400 }
+    );
+  }
+
+  if (
+    body.placeSetting === "candidates" &&
+    (!body.candidatePlaces || body.candidatePlaces.length === 0)
+  ) {
+    return NextResponse.json(
+      { message: "candidatePlaces must not be empty when placeSetting is candidates" },
       { status: 400 }
     );
   }
@@ -340,7 +350,9 @@ export async function PATCH(
     body.timeSetting === "candidates" ||
     body.timeSetting === "manual";
   const hasPlaceSetting =
-    body.placeSetting === "auto" || body.placeSetting === "manual";
+    body.placeSetting === "auto" ||
+    body.placeSetting === "candidates" ||
+    body.placeSetting === "manual";
   const hasFixedPlacePayload = body.fixedPlace !== undefined;
 
   const currentTimeSetting: "auto" | "manual" = event.fixedStartTime
@@ -433,11 +445,17 @@ export async function PATCH(
     shouldRegenerateTimeCandidates ||
     shouldReplaceWithUserCandidates;
 
+  const isPlaceCandidatesMode = body.placeSetting === "candidates";
   const shouldRegeneratePlaceCandidates =
     nextPlaceSetting === "auto" &&
     (currentPlaceSetting === "manual" || event.placeCandidates.length === 0);
+  const shouldReplaceWithUserPlaceCandidates =
+    isPlaceCandidatesMode &&
+    body.candidatePlaces != null &&
+    body.candidatePlaces.length > 0;
 
-  let shouldDeletePlaceCandidates = shouldRegeneratePlaceCandidates;
+  let shouldDeletePlaceCandidates =
+    shouldRegeneratePlaceCandidates || shouldReplaceWithUserPlaceCandidates;
 
   if (hasPlaceSetting && body.placeSetting === "manual") {
     const sourceFixedPlace =
@@ -475,7 +493,10 @@ export async function PATCH(
     if (currentPlaceSetting !== "manual" || fixedPlaceChanged) {
       shouldDeletePlaceCandidates = true;
     }
-  } else if (hasPlaceSetting && body.placeSetting === "auto") {
+  } else if (
+    hasPlaceSetting &&
+    (body.placeSetting === "auto" || body.placeSetting === "candidates")
+  ) {
     if (currentPlaceSetting === "manual") {
       updateData.fixedPlaceId = null;
       updateData.fixedPlaceName = null;
@@ -526,7 +547,38 @@ export async function PATCH(
     }
   }
 
-  if (shouldDeletePlaceCandidates) {
+  if (shouldReplaceWithUserPlaceCandidates && body.candidatePlaces) {
+    for (const c of body.candidatePlaces.slice(0, 5)) {
+      if (!Number.isFinite(c.lat) || !Number.isFinite(c.lng)) {
+        return NextResponse.json(
+          { message: `場所「${c.name}」の座標が不正です。再度検索してから追加してください。` },
+          { status: 400 }
+        );
+      }
+    }
+    const parsedPlaceCandidates = body.candidatePlaces.slice(0, 5).map((c) => ({
+      eventId: id,
+      placeId: c.placeId,
+      name: c.name,
+      address: c.address,
+      lat: c.lat,
+      lng: c.lng,
+      priceLevel: c.priceLevel,
+      score: 0,
+      source: "system" as const,
+    }));
+    try {
+      await prisma.$transaction([
+        prisma.eventPlaceCandidate.deleteMany({ where: { eventId: id } }),
+        prisma.eventPlaceCandidate.createMany({ data: parsedPlaceCandidates }),
+      ]);
+    } catch {
+      return NextResponse.json(
+        { message: "場所候補の保存に失敗しました。再度お試しください。" },
+        { status: 500 }
+      );
+    }
+  } else if (shouldDeletePlaceCandidates) {
     await prisma.eventPlaceCandidate.deleteMany({
       where: { eventId: id },
     });
