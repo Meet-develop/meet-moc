@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export async function POST(request: Request) {
+export async function POST() {
   try {
     const oneHourAgo = new Date(Date.now() - 60 * 60 * 1000);
     const result = await prisma.event.updateMany({
