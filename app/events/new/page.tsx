@@ -495,6 +495,11 @@ function EventCreatePageContent() {
     };
   }, [timeSetting, userId, suggestionRetryCount]);
 
+  const effectivePlacePurpose = useMemo(
+    () => (purposeElements.length > 0 ? purposeElements.join(" ") : "飲み"),
+    [purposeElements]
+  );
+
   useEffect(() => {
     if (placeSetting !== "candidates" || !userId) return;
 
@@ -568,11 +573,6 @@ function EventCreatePageContent() {
   const allPurposeOptions = useMemo(
     () => [...customPurposeOptions, ...purposeElementOptions],
     [customPurposeOptions]
-  );
-
-  const effectivePlacePurpose = useMemo(
-    () => (purposeElements.length > 0 ? purposeElements.join(" ") : "飲み"),
-    [purposeElements]
   );
 
   const autoTitle = useMemo(() => buildAutoTitle(purposeElements), [purposeElements]);
