@@ -80,6 +80,11 @@ a[class*=" border-"] {
   -webkit-font-smoothing: antialiased;
 }
 
+/* outlined variant for Material Symbols (no fill) */
+.material-symbols-rounded-outline {
+  font-variation-settings: "FILL" 0, "wght" 500, "GRAD" 0, "opsz" 24;
+}
+
 /* スクロールバーを隠す */
 .scrollbar-hide {
   -ms-overflow-style: none;
