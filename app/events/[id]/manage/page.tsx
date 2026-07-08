@@ -38,7 +38,13 @@ type EventDetail = {
     };
     createdAt: string;
   }[];
-  timeCandidates: { id: string; startTime: string; endTime: string; score: number }[];
+  timeCandidates: {
+    id: string;
+    startTime: string;
+    endTime: string;
+    score: number;
+    votes: { userId: string; displayName: string; isAvailable: boolean }[];
+  }[];
   placeCandidates: { id: string; placeId: string; name: string; address: string; score: number }[];
 };
 
@@ -67,7 +73,11 @@ export default function EventManagePage() {
             new Date(data.fixedStartTime as string).getTime()
         )
       : null;
-    setTimeCandidateId(matchedTimeCandidate?.id ?? data.timeCandidates[0]?.id ?? null);
+    const highestScoreCandidate =
+      data.timeCandidates.length > 0
+        ? data.timeCandidates.reduce((best, c) => (c.score > best.score ? c : best))
+        : null;
+    setTimeCandidateId(matchedTimeCandidate?.id ?? highestScoreCandidate?.id ?? null);
 
     const matchedPlaceCandidate = data.fixedPlaceId
       ? data.placeCandidates.find((candidate) => candidate.placeId === data.fixedPlaceId)
@@ -304,7 +314,22 @@ export default function EventManagePage() {
 
         <section className="mt-8 grid gap-6 pt-6 md:grid-cols-2">
           <div>
-            <h2 className="text-lg font-semibold">日程候補</h2>
+            {(() => {
+              const approvedCount = event.participants.filter((p) => p.status === "approved").length;
+              const votedCount = new Set(
+                event.timeCandidates.flatMap((c) => c.votes.map((v) => v.userId))
+              ).size;
+              return (
+                <div className="flex items-center gap-3">
+                  <h2 className="text-lg font-semibold">日程候補</h2>
+                  {requiresTimeSelection && (
+                    <span className="rounded-full bg-sky-50 px-2.5 py-1 text-[10px] font-semibold text-sky-700">
+                      {approvedCount}人中{votedCount}人が投票済み
+                    </span>
+                  )}
+                </div>
+              );
+            })()}
             {event.fixedStartTime && (
               <div className="mt-3 rounded-2xl bg-orange-50 p-3 text-xs text-[var(--muted)]">
                 現在の確定: {formatStart(event.fixedStartTime)}
@@ -327,6 +352,22 @@ export default function EventManagePage() {
                       {formatStart(candidate.startTime)}
                     </p>
                     <p className="text-xs text-[var(--muted)]">スコア: {candidate.score}</p>
+                    {candidate.votes.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {candidate.votes.map((vote) => (
+                          <span
+                            key={vote.userId}
+                            className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+                              vote.isAvailable
+                                ? "bg-emerald-100 text-emerald-700"
+                                : "bg-rose-100 text-rose-700"
+                            }`}
+                          >
+                            {vote.isAvailable ? "○" : "×"} {vote.displayName}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                     <button
                       onClick={() => setTimeCandidateId(candidate.id)}
                       className="mt-2 w-full rounded-full bg-white px-3 py-2 text-xs shadow-sm"

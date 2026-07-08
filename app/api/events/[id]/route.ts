@@ -86,7 +86,7 @@ export async function GET(
         include: { inviter: true, invitee: true },
         orderBy: { createdAt: "desc" },
       },
-      timeCandidates: { include: { votes: true } },
+      timeCandidates: { include: { votes: { include: { user: true } } } },
       placeCandidates: { include: { votes: true } },
     },
   });
@@ -161,6 +161,11 @@ export async function GET(
         proposedBy: candidate.proposedBy,
         availableVotes,
         myAvailability: myVote?.isAvailable ?? null,
+        votes: candidate.votes.map((vote: any) => ({
+          userId: vote.userId,
+          displayName: vote.user.displayName,
+          isAvailable: vote.isAvailable,
+        })),
       };
     })
     .sort((a: any, b: any) => new Date(a.startTime).getTime() - new Date(b.startTime).getTime())
