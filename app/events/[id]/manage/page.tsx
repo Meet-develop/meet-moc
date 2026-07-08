@@ -49,7 +49,7 @@ type EventDetail = {
 };
 
 const formatStart = (start: string) => {
-  return formatEventStartLabel(start);
+  return formatEventStartLabel(start, true);
 };
 
 export default function EventManagePage() {
@@ -357,6 +357,20 @@ export default function EventManagePage() {
                       }`}
                     >
                       <div className="flex items-center gap-2">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTimeCandidateId(candidate.id);
+                          }}
+                          className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition-colors ${
+                            isSelected
+                              ? "border-orange-500 bg-orange-500"
+                              : "border-gray-300 bg-white"
+                          }`}
+                          aria-label="選択"
+                        >
+                          {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
+                        </button>
                         <p className="min-w-0 flex-1 truncate font-semibold text-[var(--foreground)]">
                           {formatStart(candidate.startTime)}
                         </p>
@@ -374,20 +388,6 @@ export default function EventManagePage() {
                             未{notVotedCount}
                           </span>
                         </div>
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setTimeCandidateId(candidate.id);
-                          }}
-                          className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition-colors ${
-                            isSelected
-                              ? "border-orange-500 bg-orange-500"
-                              : "border-gray-300 bg-white"
-                          }`}
-                          aria-label="選択"
-                        >
-                          {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
-                        </button>
                       </div>
                     </li>
                   );
