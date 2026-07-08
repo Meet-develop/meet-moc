@@ -62,6 +62,7 @@ export default function EventManagePage() {
   const [placeCandidateId, setPlaceCandidateId] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [selectedTimeCandidate, setSelectedTimeCandidate] = useState<EventDetail["timeCandidates"][number] | null>(null);
 
   const applyEventState = (data: EventDetail) => {
     setEvent(data);
@@ -339,43 +340,54 @@ export default function EventManagePage() {
               <p className="mt-4 text-sm text-[var(--muted)]">日程候補はありません。</p>
             ) : (
               <ul className="mt-4 space-y-3">
-                {event.timeCandidates.map((candidate) => (
-                  <li
-                    key={candidate.id}
-                    className={`rounded-2xl p-4 text-sm shadow-sm ${
-                      timeCandidateId === candidate.id
-                        ? "bg-orange-50"
-                        : "bg-white"
-                    }`}
-                  >
-                    <p className="font-semibold text-[var(--foreground)]">
-                      {formatStart(candidate.startTime)}
-                    </p>
-                    <p className="text-xs text-[var(--muted)]">スコア: {candidate.score}</p>
-                    {candidate.votes.length > 0 && (
-                      <div className="mt-2 flex flex-wrap gap-1">
-                        {candidate.votes.map((vote) => (
-                          <span
-                            key={vote.userId}
-                            className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-                              vote.isAvailable
-                                ? "bg-emerald-100 text-emerald-700"
-                                : "bg-rose-100 text-rose-700"
-                            }`}
-                          >
-                            {vote.isAvailable ? "○" : "×"} {vote.displayName}
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    <button
-                      onClick={() => setTimeCandidateId(candidate.id)}
-                      className="mt-2 w-full rounded-full bg-white px-3 py-2 text-xs shadow-sm"
+                {event.timeCandidates.map((candidate) => {
+                  const availableCount = candidate.votes.filter((v) => v.isAvailable).length;
+                  const notAvailableCount = candidate.votes.filter((v) => !v.isAvailable).length;
+                  const approvedParticipants = event.participants.filter((p) => p.status === "approved");
+                  const votedUserIds = new Set(candidate.votes.map((v) => v.userId));
+                  const notVotedCount = approvedParticipants.filter((p) => !votedUserIds.has(p.userId)).length;
+                  const isSelected = timeCandidateId === candidate.id;
+                  return (
+                    <li
+                      key={candidate.id}
+                      onClick={() => setSelectedTimeCandidate(candidate)}
+                      className={`cursor-pointer rounded-2xl p-4 text-sm shadow-sm transition-colors ${
+                        isSelected ? "bg-orange-50" : "bg-white"
+                      }`}
                     >
-                      選択
-                    </button>
-                  </li>
-                ))}
+                      <div className="flex items-center gap-2">
+                        <p className="min-w-0 flex-1 truncate font-semibold text-[var(--foreground)]">
+                          {formatStart(candidate.startTime)}
+                        </p>
+                        <div className="flex shrink-0 items-center gap-1">
+                          <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
+                            ○{availableCount}
+                          </span>
+                          <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
+                            ×{notAvailableCount}
+                          </span>
+                          <span className="rounded-full bg-gray-100 px-1.5 py-0.5 text-[10px] font-semibold text-gray-500">
+                            未{notVotedCount}
+                          </span>
+                        </div>
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setTimeCandidateId(candidate.id);
+                          }}
+                          className={`grid h-5 w-5 shrink-0 place-items-center rounded-full border-2 transition-colors ${
+                            isSelected
+                              ? "border-orange-500 bg-orange-500"
+                              : "border-gray-300 bg-white"
+                          }`}
+                          aria-label="選択"
+                        >
+                          {isSelected && <div className="h-2 w-2 rounded-full bg-white" />}
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
               </ul>
             )}
           </div>
@@ -459,6 +471,94 @@ export default function EventManagePage() {
           </button>
         </section>
       </main>
+
+      {selectedTimeCandidate && (() => {
+        const available = selectedTimeCandidate.votes.filter((v) => v.isAvailable);
+        const notAvailable = selectedTimeCandidate.votes.filter((v) => !v.isAvailable);
+        const votedUserIds = new Set(selectedTimeCandidate.votes.map((v) => v.userId));
+        const approvedParticipants = event.participants.filter((p) => p.status === "approved");
+        const notVoted = approvedParticipants.filter((p) => !votedUserIds.has(p.userId));
+        return (
+          <div className="fixed inset-0 z-[60] flex items-end bg-black/35 p-3 sm:items-center sm:justify-center sm:p-6">
+            <div className="max-h-[85vh] w-full max-w-md overflow-y-auto rounded-3xl bg-[var(--surface)] p-4 shadow-2xl">
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-semibold">
+                  {formatStart(selectedTimeCandidate.startTime)}
+                </h3>
+                <button
+                  onClick={() => setSelectedTimeCandidate(null)}
+                  className="grid h-8 w-8 place-items-center rounded-full bg-white text-[var(--muted)]"
+                  aria-label="閉じる"
+                >
+                  <span className="material-symbols-rounded">close</span>
+                </button>
+              </div>
+
+              <div className="mt-4 space-y-4">
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-emerald-700">
+                    ○ 参加可能（{available.length}人）
+                  </p>
+                  {available.length === 0 ? (
+                    <p className="text-xs text-[var(--muted)]">なし</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {available.map((v) => (
+                        <li
+                          key={v.userId}
+                          className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-[var(--foreground)]"
+                        >
+                          {v.displayName}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-rose-700">
+                    × 参加不可（{notAvailable.length}人）
+                  </p>
+                  {notAvailable.length === 0 ? (
+                    <p className="text-xs text-[var(--muted)]">なし</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {notAvailable.map((v) => (
+                        <li
+                          key={v.userId}
+                          className="rounded-xl bg-rose-50 px-3 py-2 text-sm text-[var(--foreground)]"
+                        >
+                          {v.displayName}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-gray-500">
+                    未投票（{notVoted.length}人）
+                  </p>
+                  {notVoted.length === 0 ? (
+                    <p className="text-xs text-[var(--muted)]">全員投票済み</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {notVoted.map((p) => (
+                        <li
+                          key={p.userId}
+                          className="rounded-xl bg-gray-50 px-3 py-2 text-sm text-[var(--foreground)]"
+                        >
+                          {p.displayName}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }
