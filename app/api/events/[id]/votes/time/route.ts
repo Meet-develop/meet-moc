@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { TimeAvailability } from "@prisma/client";
 
 export async function POST(
   request: Request,
@@ -9,12 +10,28 @@ export async function POST(
   const body = (await request.json()) as {
     userId?: string;
     candidateId?: string;
+    availability?: TimeAvailability;
+    // legacy payloads may send `isAvailable: boolean`
     isAvailable?: boolean;
   };
 
   if (!body.userId || !body.candidateId) {
     return NextResponse.json(
       { message: "userId and candidateId are required" },
+      { status: 400 }
+    );
+  }
+
+  const availability =
+    body.availability ??
+    (body.isAvailable !== undefined
+      ? body.isAvailable
+        ? TimeAvailability.available
+        : TimeAvailability.unavailable
+      : TimeAvailability.available);
+  if (!Object.values(TimeAvailability).includes(availability)) {
+    return NextResponse.json(
+      { message: "availability must be available, maybe, or unavailable" },
       { status: 400 }
     );
   }
@@ -53,13 +70,11 @@ export async function POST(
         userId: body.userId,
       },
     },
-    update: {
-      isAvailable: body.isAvailable ?? true,
-    },
+    update: { availability },
     create: {
       candidateId: body.candidateId,
       userId: body.userId,
-      isAvailable: body.isAvailable ?? true,
+      availability,
     },
   });
 

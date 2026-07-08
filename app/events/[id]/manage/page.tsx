@@ -43,7 +43,7 @@ type EventDetail = {
     startTime: string;
     endTime: string;
     score: number;
-    votes: { userId: string; displayName: string; isAvailable: boolean }[];
+    votes: { userId: string; displayName: string; availability: "available" | "maybe" | "unavailable" }[];
   }[];
   placeCandidates: { id: string; placeId: string; name: string; address: string; score: number }[];
 };
@@ -341,8 +341,9 @@ export default function EventManagePage() {
             ) : (
               <ul className="mt-4 space-y-3">
                 {event.timeCandidates.map((candidate) => {
-                  const availableCount = candidate.votes.filter((v) => v.isAvailable).length;
-                  const notAvailableCount = candidate.votes.filter((v) => !v.isAvailable).length;
+                  const availableCount = candidate.votes.filter((v) => v.availability === "available").length;
+                  const maybeCount = candidate.votes.filter((v) => v.availability === "maybe").length;
+                  const notAvailableCount = candidate.votes.filter((v) => v.availability === "unavailable").length;
                   const approvedParticipants = event.participants.filter((p) => p.status === "approved");
                   const votedUserIds = new Set(candidate.votes.map((v) => v.userId));
                   const notVotedCount = approvedParticipants.filter((p) => !votedUserIds.has(p.userId)).length;
@@ -362,6 +363,9 @@ export default function EventManagePage() {
                         <div className="flex shrink-0 items-center gap-1">
                           <span className="rounded-full bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
                             ○{availableCount}
+                          </span>
+                          <span className="rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700">
+                            △{maybeCount}
                           </span>
                           <span className="rounded-full bg-rose-100 px-1.5 py-0.5 text-[10px] font-semibold text-rose-700">
                             ×{notAvailableCount}
@@ -473,8 +477,9 @@ export default function EventManagePage() {
       </main>
 
       {selectedTimeCandidate && (() => {
-        const available = selectedTimeCandidate.votes.filter((v) => v.isAvailable);
-        const notAvailable = selectedTimeCandidate.votes.filter((v) => !v.isAvailable);
+        const available = selectedTimeCandidate.votes.filter((v) => v.availability === "available");
+        const maybe = selectedTimeCandidate.votes.filter((v) => v.availability === "maybe");
+        const notAvailable = selectedTimeCandidate.votes.filter((v) => v.availability === "unavailable");
         const votedUserIds = new Set(selectedTimeCandidate.votes.map((v) => v.userId));
         const approvedParticipants = event.participants.filter((p) => p.status === "approved");
         const notVoted = approvedParticipants.filter((p) => !votedUserIds.has(p.userId));
@@ -507,6 +512,26 @@ export default function EventManagePage() {
                         <li
                           key={v.userId}
                           className="rounded-xl bg-emerald-50 px-3 py-2 text-sm text-[var(--foreground)]"
+                        >
+                          {v.displayName}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                <div>
+                  <p className="mb-2 text-xs font-semibold text-amber-700">
+                    △ たぶん参加可能（{maybe.length}人）
+                  </p>
+                  {maybe.length === 0 ? (
+                    <p className="text-xs text-[var(--muted)]">なし</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {maybe.map((v) => (
+                        <li
+                          key={v.userId}
+                          className="rounded-xl bg-amber-50 px-3 py-2 text-sm text-[var(--foreground)]"
                         >
                           {v.displayName}
                         </li>

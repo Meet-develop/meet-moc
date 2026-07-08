@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { TimeAvailability } from "@prisma/client";
 import { getPlacePhotoUrlByPlaceId, getPlacesForQuery } from "@/lib/places";
 import { createAppNotifications } from "@/lib/notification-delivery";
 import { parseIsoDateTimeWithTimeZone } from "@/lib/datetime";
@@ -146,9 +147,21 @@ export async function GET(
       },
     }));
 
+  const availabilityWeight: Record<TimeAvailability, number> = {
+    [TimeAvailability.available]: 2,
+    [TimeAvailability.maybe]: 1,
+    [TimeAvailability.unavailable]: 0,
+  };
+
   const timeCandidates = event.timeCandidates
     .map((candidate: any) => {
-      const availableVotes = candidate.votes.filter((vote: any) => vote.isAvailable).length;
+      const weightedScore = candidate.votes.reduce(
+        (acc: number, vote: any) => acc + (availabilityWeight[vote.availability as TimeAvailability] ?? 0),
+        0
+      );
+      const availableVotes = candidate.votes.filter(
+        (vote: any) => vote.availability === "available"
+      ).length;
       const myVote = viewerId
         ? candidate.votes.find((vote: any) => vote.userId === viewerId)
         : undefined;
@@ -156,15 +169,15 @@ export async function GET(
         id: candidate.id,
         startTime: candidate.startTime,
         endTime: candidate.endTime,
-        score: candidate.score + availableVotes,
+        score: candidate.score + weightedScore,
         source: candidate.source,
         proposedBy: candidate.proposedBy,
         availableVotes,
-        myAvailability: myVote?.isAvailable ?? null,
+        myAvailability: myVote?.availability ?? null,
         votes: candidate.votes.map((vote: any) => ({
           userId: vote.userId,
           displayName: vote.user.displayName,
-          isAvailable: vote.isAvailable,
+          availability: vote.availability,
         })),
       };
     })

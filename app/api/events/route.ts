@@ -198,7 +198,11 @@ export async function GET(request: Request) {
           )
         : undefined;
       const timeCandidates = [...event.timeCandidates]
-        .sort((a: any, b: any) => b.score - a.score)
+        .sort((a: any, b: any) => {
+          const ta = new Date(a.startTime).getTime();
+          const tb = new Date(b.startTime).getTime();
+          return ta - tb;
+        })
         .slice(0, 3)
         .map((candidate: any) => ({
           id: candidate.id,
