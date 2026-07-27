@@ -33,6 +33,15 @@ import { GET } from "../app/api/jobs/reminders/route";
 async function test() {
   console.log("Starting reminders tests...");
 
+  // DB疎通チェック（CI環境等でDBが利用不可の場合はスキップ）
+  try {
+    await prisma.$connect();
+    await prisma.$queryRaw`SELECT 1`;
+  } catch (err) {
+    console.warn("[SKIP] Database is not accessible. Skipping reminders integration test.");
+    return;
+  }
+
   // 1. テストデータのセットアップ
   const ownerId = "00000000-0000-0000-0000-000000000001";
   const guestId = "00000000-0000-0000-0000-000000000002";
