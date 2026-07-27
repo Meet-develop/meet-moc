@@ -66,13 +66,18 @@ const deliverToLineIfLinked = async (payload: NotificationPayload) => {
   await pushLineMessage(lineUserId, text);
 };
 
-const enrichPayload = async (payload: NotificationPayload): Promise<NotificationPayload> => {
-  if (!payload.eventId) return payload;
+const enrichPayloads = async (payloads: NotificationPayload[]): Promise<NotificationPayload[]> => {
+  const eventIds = Array.from(
+    new Set(payloads.map((p) => p.eventId).filter((id): id is string => Boolean(id)))
+  );
+
+  if (eventIds.length === 0) return payloads;
 
   try {
-    const eventInfo = await prisma.event.findUnique({
-      where: { id: payload.eventId },
+    const events = await prisma.event.findMany({
+      where: { id: { in: eventIds } },
       select: {
+        id: true,
         purpose: true,
         fixedStartTime: true,
         owner: {
@@ -83,7 +88,13 @@ const enrichPayload = async (payload: NotificationPayload): Promise<Notification
       },
     });
 
-    if (eventInfo) {
+    const eventMap = new Map(events.map((e) => [e.id, e]));
+
+    return payloads.map((payload) => {
+      if (!payload.eventId) return payload;
+      const eventInfo = eventMap.get(payload.eventId);
+      if (!eventInfo) return payload;
+
       const enriched = { ...payload };
       const ownerName = eventInfo.owner.displayName;
       const eventName = eventInfo.purpose;
@@ -109,12 +120,16 @@ const enrichPayload = async (payload: NotificationPayload): Promise<Notification
       }
 
       return enriched;
-    }
+    });
   } catch (error) {
-    console.error("Failed to enrich notification payload", error);
+    console.error("Failed to enrich notification payloads", error);
+    return payloads;
   }
+};
 
-  return payload;
+const enrichPayload = async (payload: NotificationPayload): Promise<NotificationPayload> => {
+  const [enriched] = await enrichPayloads([payload]);
+  return enriched;
 };
 
 export const createAppNotification = async (payload: NotificationPayload) => {
@@ -144,7 +159,7 @@ export const createAppNotifications = async (payloads: NotificationPayload[]) =>
     return;
   }
 
-  const enrichedPayloads = await Promise.all(payloads.map(enrichPayload));
+  const enrichedPayloads = await enrichPayloads(payloads);
 
   await prisma.notification.createMany({
     data: enrichedPayloads.map((payload) => ({
