@@ -1,4 +1,5 @@
 import { prisma } from "@/lib/prisma";
+import { formatDateTimeInJst } from "@/lib/datetime";
 
 type NotificationPayload = {
   userId: string;
@@ -65,20 +66,87 @@ const deliverToLineIfLinked = async (payload: NotificationPayload) => {
   await pushLineMessage(lineUserId, text);
 };
 
+const enrichPayloads = async (payloads: NotificationPayload[]): Promise<NotificationPayload[]> => {
+  const eventIds = Array.from(
+    new Set(payloads.map((p) => p.eventId).filter((id): id is string => Boolean(id)))
+  );
+
+  if (eventIds.length === 0) return payloads;
+
+  try {
+    const events = await prisma.event.findMany({
+      where: { id: { in: eventIds } },
+      select: {
+        id: true,
+        purpose: true,
+        fixedStartTime: true,
+        owner: {
+          select: {
+            displayName: true,
+          },
+        },
+      },
+    });
+
+    const eventMap = new Map(events.map((e) => [e.id, e]));
+
+    return payloads.map((payload) => {
+      if (!payload.eventId) return payload;
+      const eventInfo = eventMap.get(payload.eventId);
+      if (!eventInfo) return payload;
+
+      const enriched = { ...payload };
+      const ownerName = eventInfo.owner.displayName;
+      const eventName = eventInfo.purpose;
+      const startTimeStr = eventInfo.fixedStartTime
+        ? formatDateTimeInJst(eventInfo.fixedStartTime, { hour: "2-digit", minute: "2-digit" })
+        : "";
+
+      if (payload.type === "invite_received") {
+        if (payload.title !== "イベントが削除されました") {
+          enriched.title = `${eventName} のお知らせ`;
+          enriched.body = `${ownerName}さんから「${eventName}」への招待が届きました。`;
+          enriched.message = enriched.body;
+        }
+      } else if (payload.type === "event_confirmed") {
+        if (payload.title?.includes("リマインダー")) {
+          const isDaily = payload.title.includes("当日") || payload.title.includes("本日");
+          const timeText = isDaily ? "本日" : "まもなく（1時間後）";
+          const timeDetails = startTimeStr ? ` ${startTimeStr}〜` : "";
+          enriched.title = `${eventName} のリマインダー`;
+          enriched.body = `${ownerName}さんのイベント「${eventName}」は${timeText}${timeDetails}に開催されます。`;
+          enriched.message = enriched.body;
+        }
+      }
+
+      return enriched;
+    });
+  } catch (error) {
+    console.error("Failed to enrich notification payloads", error);
+    return payloads;
+  }
+};
+
+const enrichPayload = async (payload: NotificationPayload): Promise<NotificationPayload> => {
+  const [enriched] = await enrichPayloads([payload]);
+  return enriched;
+};
+
 export const createAppNotification = async (payload: NotificationPayload) => {
+  const enriched = await enrichPayload(payload);
   const created = await prisma.notification.create({
     data: {
-      userId: payload.userId,
-      type: payload.type,
-      title: payload.title,
-      body: payload.body,
-      message: payload.message,
-      eventId: payload.eventId,
+      userId: enriched.userId,
+      type: enriched.type,
+      title: enriched.title,
+      body: enriched.body,
+      message: enriched.message,
+      eventId: enriched.eventId,
     },
   });
 
   try {
-    await deliverToLineIfLinked(payload);
+    await deliverToLineIfLinked(enriched);
   } catch (error) {
     console.error("Failed to deliver LINE notification", error);
   }
@@ -91,8 +159,10 @@ export const createAppNotifications = async (payloads: NotificationPayload[]) =>
     return;
   }
 
+  const enrichedPayloads = await enrichPayloads(payloads);
+
   await prisma.notification.createMany({
-    data: payloads.map((payload) => ({
+    data: enrichedPayloads.map((payload) => ({
       userId: payload.userId,
       type: payload.type,
       title: payload.title,
@@ -103,7 +173,7 @@ export const createAppNotifications = async (payloads: NotificationPayload[]) =>
   });
 
   await Promise.all(
-    payloads.map(async (payload) => {
+    enrichedPayloads.map(async (payload) => {
       try {
         await deliverToLineIfLinked(payload);
       } catch (error) {

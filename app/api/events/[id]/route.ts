@@ -308,6 +308,7 @@ export async function PATCH(
       participants: true,
       timeCandidates: true,
       placeCandidates: true,
+      owner: { select: { displayName: true } },
     },
   });
 
@@ -669,8 +670,8 @@ export async function PATCH(
         userId,
         type: "event_confirmed",
         title: "イベント情報が更新されました",
-        body: `「${updated.purpose}」の内容が更新されました。`,
-        message: `「${updated.purpose}」の内容が更新されました。`,
+        body: `${event.owner.displayName}さんが作成したイベント「${updated.purpose}」の内容が更新されました。`,
+        message: `${event.owner.displayName}さんが作成したイベント「${updated.purpose}」の内容が更新されました。`,
         eventId: updated.id,
       }))
     );
@@ -694,6 +695,7 @@ export async function DELETE(
     where: { id },
     include: {
       participants: true,
+      owner: { select: { displayName: true } },
     },
   });
 
@@ -720,8 +722,8 @@ export async function DELETE(
         userId,
         type: "invite_received",
         title: "イベントが削除されました",
-        body: `「${event.purpose}」は主催者により削除されました。`,
-        message: `「${event.purpose}」は主催者により削除されました。`,
+        body: `${event.owner.displayName}さんが作成したイベント「${event.purpose}」は主催者により削除されました。`,
+        message: `${event.owner.displayName}さんが作成したイベント「${event.purpose}」は主催者により削除されました。`,
       }))
     );
   }

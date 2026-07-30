@@ -156,8 +156,8 @@ export async function POST(
       userId: friendId,
       type: "invite_received" as const,
       title: "イベント招待",
-      body: `${actor.displayName}さんから「${event.purpose}」の招待が届きました。`,
-      message: `${actor.displayName}さんから「${event.purpose}」の招待が届きました。`,
+      body: `${event.owner.displayName}さんから「${event.purpose}」の招待が届きました。`,
+      message: `${event.owner.displayName}さんから「${event.purpose}」の招待が届きました。`,
       eventId: event.id,
     }))
   );

@@ -1,0 +1,44 @@
+name: Event Reminders Cron
+
+on:
+  schedule:
+    # JST 0:05 (UTC 15:05)
+    - cron: '5 15 * * *'
+    # Every hour on the hour (UTC)
+    - cron: '0 * * * *'
+  workflow_dispatch:
+    inputs:
+      type:
+        description: 'Reminder Type to trigger'
+        required: true
+        default: 'hourly'
+        type: choice
+        options:
+          - hourly
+          - today
+
+jobs:
+  send-reminders:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determine reminder type
+        id: determine_type
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "type=${{ github.event.inputs.type }}" >> $GITHUB_OUTPUT
+          else
+            SCHEDULE="${{ github.event.schedule }}"
+            if [ "$SCHEDULE" = "5 15 * * *" ]; then
+              echo "type=today" >> $GITHUB_OUTPUT
+            else
+              echo "type=hourly" >> $GITHUB_OUTPUT
+            fi
+          fi
+
+      - name: Trigger Reminders API
+        run: |
+          TYPE="${{ steps.determine_type.outputs.type }}"
+          echo "Triggering $TYPE reminders..."
+          curl -X GET "${{ secrets.APP_URL }}/api/jobs/reminders?type=$TYPE" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -f
