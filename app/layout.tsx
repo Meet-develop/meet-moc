@@ -3,6 +3,7 @@ import { Sora, Space_Mono } from "next/font/google";
 import "./globals.css";
 import { Providers } from "@/components/providers";
 import { MobileBottomNav } from "@/components/navigation/mobile-bottom-nav";
+import { getMetadataBaseUrl } from "@/lib/site-url";
 
 const sora = Sora({
   variable: "--font-sora",
@@ -16,14 +17,18 @@ const spaceMono = Space_Mono({
   weight: ["400", "700"],
 });
 
+const title = "Meet & Moc";
+const description = "Smart event coordination with friend-first scheduling.";
+
 export const metadata: Metadata = {
-  title: "Meet & Moc",
-  description: "Smart event coordination with friend-first scheduling.",
+  metadataBase: getMetadataBaseUrl(),
+  title,
+  description,
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Meet & Moc",
+    title,
   },
   icons: {
     icon: [
@@ -32,6 +37,18 @@ export const metadata: Metadata = {
     apple: [
       { url: "/line_120.png", sizes: "120x120", type: "image/png" },
     ],
+  },
+  openGraph: {
+    title,
+    description,
+    siteName: title,
+    locale: "ja_JP",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title,
+    description,
   },
 };
 
