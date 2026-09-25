@@ -12,7 +12,7 @@ allowed-tools:
 
 # Comprehensive PR Review
 
-meet-moc 向けの包括的 PR レビュー。複数の専門エージェントで PR を精査し、マージ前の品質を保証する。
+mixkan 向けの包括的 PR レビュー。複数の専門エージェントで PR を精査し、マージ前の品質を保証する。
 
 **レビュー引数:** "$ARGUMENTS"
 
@@ -98,7 +98,7 @@ git diff --name-only HEAD~1 HEAD 2>/dev/null || git diff --name-only origin/deve
 git diff HEAD~1 HEAD 2>/dev/null || git diff origin/develop...HEAD
 
 【プロジェクト情報】
-- リポジトリ: Meet-develop/meet-moc
+- リポジトリ: Meet-develop/mixkan
 - フレームワーク: Next.js (App Router) + Prisma + PostgreSQL + TypeScript
 - ガイドライン: リポジトリルートの AGENTS.md を参照
 - ブランチ: develop がベースブランチ
